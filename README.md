@@ -13,6 +13,14 @@ a branch, staff choose between two sections:
 There's also a separate **Owner** login (a super-admin over every store — see
 [Owner account](#owner-account) below).
 
+**New here?** [docs/PRD.md](docs/PRD.md) (what this is and who it's for),
+[docs/TRD.md](docs/TRD.md) (how it's built), [docs/APP_FLOW.md](docs/APP_FLOW.md)
+(screen-by-screen walkthrough), [docs/BACKEND_SCHEMA.md](docs/BACKEND_SCHEMA.md)
+(the actual data shapes), [docs/UI_UX_DESIGN_BRIEF.md](docs/UI_UX_DESIGN_BRIEF.md),
+[docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) (what's done vs. what's
+next), and [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md) (the pre-publish
+security audit and fixes) cover this project end to end.
+
 ## Run it
 
 ```bash
@@ -29,11 +37,14 @@ tips-tracker/
 ├── backend/               Express server and all data/business logic
 │   ├── server.js          Routes, sessions, auth middleware
 │   ├── lib/store.js       Data model, validation, pay/tip math, history queries
+│   ├── lib/sheets.js      Background sync of business data into the owner's Google Sheet
 │   └── data/              Runtime JSON storage (gitignored, created on first run)
 ├── frontend/               Static site served by the backend — plain HTML/CSS/JS, no build step
 │   ├── *.html              One page per screen (login, dashboard, entry, history, settings, ...)
+│   ├── privacy-policy.html, terms.html, cookie-policy.html   Legal pages (templates — see below)
 │   ├── common.js            Shared fetch/session/render helpers used by every page
 │   └── styles.css           All styling
+├── docs/                  Planning & reference docs (PRD, TRD, app flow, schema, security review)
 └── .github/workflows/      CI (syntax-checks the backend on every push/PR)
 ```
 
@@ -78,35 +89,74 @@ Dashboard, the owner can:
 - **Open a store's dashboard** directly (as that store's admin) to look
   into or manage its day-to-day data, with a "← Back to Owner" button to
   return.
+- **Explore an Analytics panel** below the store list — filter by store,
+  employee or driver, metric (cash tips / credit tips / both / drivers' pay),
+  and period (weekly/monthly/yearly), then view the result as a bar chart, a
+  plain table, or one small chart per store side by side. Everything is
+  computed client-side from `/api/owner/analytics`, so switching filters or
+  chart type is instant.
 
 The owner password is stored the same way as everything else — hashed in
 `backend/data/config.json`, seeded automatically (including for
 already-existing installs, which get the owner account backfilled on next
 start).
 
-### Owner sign-in with Google (optional)
+### Owner sign-in with Google, and Google Sheet sync (optional)
 
 As an alternative to the owner password, the owner can sign in with a real
 Gmail account instead. This is entirely opt-in and off by default — the
-password keeps working either way.
+password keeps working either way. Signing in with Google also connects a
+**Google Sheet**, created automatically under that same Gmail account, which
+is kept as a live mirror of the business data — employees, drivers, tip
+entries, and delivery entries, across every branch.
 
 To turn it on:
 
-1. Copy `.env.example` to `.env` and follow the instructions inside it to
-   create a free Google OAuth client at
-   [console.cloud.google.com](https://console.cloud.google.com/apis/credentials),
-   then fill in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Restart the
-   server after saving `.env`.
-2. Log in as Owner with the password, go to **Settings**, and enter the
+1. In [Google Cloud Console](https://console.cloud.google.com/), enable the
+   **Google Sheets API** for your project, and on the OAuth consent screen's
+   **Data Access** page add the `.../auth/spreadsheets` scope. While the app
+   is in "Testing" publishing status, also add the owner's Gmail address
+   under **Audience → Test users** — Google only allows listed test users to
+   grant a sensitive scope like this to an unverified app.
+2. Copy `.env.example` to `.env` and follow the instructions inside it to
+   create a free Google OAuth client, then fill in `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET`. Restart the server after saving `.env`.
+3. Log in as Owner with the password, go to **Settings**, and enter the
    exact Gmail address that should be allowed to sign in — only that one
    address will ever be accepted.
-3. A "Continue with Google" button now appears on the login page whenever
-   "Owner" is selected.
+4. A "Continue with Google" button now appears on the login page whenever
+   "Owner" is selected. Signing in with it the first time creates a Google
+   Sheet titled "Tips Tracker Data" under that account and starts syncing.
 
-Nothing about Google is ever treated as a database or data store — it's
-purely an alternate way to prove who the owner is. All the actual data
-(employees, entries, rates, password hashes) stays exactly where it already
-is, in `backend/data/`.
+**How the sync works:** the local files in `backend/data/` remain the fast,
+always-available copy that every request reads and writes — nothing waits on
+a network call. Every change (a new tip entry, an added employee, etc.)
+marks the affected Sheet tabs as needing a refresh, and a background job
+pushes the current contents up to the Sheet within moments, retrying
+automatically if the connection or Google's API is briefly unreachable. The
+Sheet is meant as the durable, off-machine copy of the business data; the
+local files are the safety net, not the other way around.
+
+**What's deliberately excluded:** branch/admin/owner passwords and pay-rate
+settings are never written to the Sheet — they stay local-only, both because
+they're sensitive and because logins still need to work even if Google is
+briefly unreachable. Google is otherwise never used as a database beyond
+this — the "Sign in with Google" button itself is purely an alternate way to
+prove who the owner is.
+
+**Sheet layout:** one spreadsheet ("Tips Tracker Data") with four tabs —
+`Employees`, `Drivers`, `Entries`, `DeliveryEntries` — shared across every
+branch, with a `branchId`/`branchName` column on each row to tell them apart.
+`Entries` has one row per employee per tip entry (with that employee's hours
+and their share of cash/credit tips already split out); `DeliveryEntries` has
+one row per driver per delivery entry (hours, each zone's delivery count,
+base/delivery/tip pay, and the final total). Every value lives in its own
+column — nothing is packed into a JSON blob — so the sheet is ready to pivot,
+filter, or chart directly in Google Sheets.
+
+Manage the connection any time from the owner dashboard's **Settings** page:
+open the Sheet directly, force an immediate sync, or disconnect (existing
+data in the Sheet is left as-is; new changes stop syncing until reconnected).
 
 - On the login page, pick a branch and enter its **staff password** to open
   that branch's dashboard, where you choose Tip Sheet or Delivery. Each
@@ -224,3 +274,24 @@ serverless platforms as-is: their filesystem is read-only/ephemeral, so
 every save (a new entry, a password change, a new employee) would fail or
 silently disappear. Moving to serverless would require replacing
 `backend/data/*.json` with a real hosted database first.
+
+## Legal pages
+
+`frontend/privacy-policy.html`, `frontend/terms.html`, and
+`frontend/cookie-policy.html` are **templates**, linked from the login
+page's footer. Each has a notice at the top and `[bracketed]` placeholders
+for your actual business name, contact details, and governing jurisdiction —
+fill those in and have the pages reviewed by someone qualified for your
+jurisdiction before relying on them, especially if you operate in or serve
+users in the EU/UK (GDPR) or California (CCPA/CPRA).
+
+## Security
+
+See [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md) for the pre-publish
+security audit (methodology, findings, and fixes — including a stored-XSS
+class of bug that was found and fixed). In short: `helmet` security headers,
+rate limiting on every password-checking route, all user-supplied text
+escaped before it reaches the page (see `escapeHtml` in
+`frontend/common.js`), a 6-character password minimum, and `npm audit`
+clean at time of writing. Re-run `npm audit` periodically as dependencies
+age.

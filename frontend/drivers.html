@@ -40,8 +40,8 @@
     const rows = drivers
       .map(
         (d) => `
-          <tr data-id="${d.id}">
-            <td><input type="text" class="name-input" value="${d.name}" /></td>
+          <tr data-id="${escapeHtml(d.id)}">
+            <td><input type="text" class="name-input" value="${escapeHtml(d.name)}" /></td>
             <td><span class="badge ${d.active ? "badge-active" : "badge-inactive"}">${d.active ? "Active" : "Inactive"}</span></td>
             <td class="actions-cell">
               <button class="btn-secondary save-btn">Save name</button>

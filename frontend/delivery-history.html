@@ -51,7 +51,7 @@
         const dayRows = row.days
           .map((d) => {
             const zoneStr = d.zoneCounts.map((c, i) => `Z${i + 1}:${c}`).join(" ");
-            const noteStr = d.note ? ` — ${d.note}` : "";
+            const noteStr = d.note ? ` — ${escapeHtml(d.note)}` : "";
             const payClass = d.isSolo ? (d.topUpApplied ? "pay-floor" : "pay-above") : "";
             const cashStr =
               d.cashOrderCount > 0 || d.cashOrderValue > 0 ? `${d.cashOrderCount} / ${formatMoney(d.cashOrderValue)}` : "—";
@@ -74,7 +74,7 @@
             : "—";
         return `
           <tr>
-            <td><button class="expand-toggle" data-target="${row.driverId}">&#9656;</button> ${row.name}</td>
+            <td><button class="expand-toggle" data-target="${row.driverId}">&#9656;</button> ${escapeHtml(row.name)}</td>
             <td>${row.hours}h</td>
             <td>${formatMoney(row.basePay)}</td>
             <td>${formatMoney(row.deliveryPay)}</td>

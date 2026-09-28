@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Owner Dashboard - Tips Tracker</title>
 <link rel="stylesheet" href="/styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div class="owner-shell">
@@ -27,16 +28,60 @@
         <button class="btn-primary" id="add-store-btn">+ Add store</button>
       </div>
 
-      <div class="stat-card-row">
-        <div class="stat-card">
-          <div class="stat-icon" style="background:#dbeafe; color:#1d4ed8;">&#127970;</div>
-          <div class="stat-value" id="stat-store-count">&mdash;</div>
-          <div class="stat-label">Total stores</div>
-        </div>
-      </div>
-
       <div class="store-grid" id="store-grid">
         <p class="empty-state">Loading&hellip;</p>
+      </div>
+
+      <div class="owner-main-header" style="margin-top:36px">
+        <h1>Analytics</h1>
+      </div>
+      <div class="analytics-panel">
+        <div class="analytics-filters">
+          <div class="analytics-filter">
+            <label for="an-store">Store</label>
+            <select id="an-store"><option value="all">All stores</option></select>
+          </div>
+          <div class="analytics-filter">
+            <label for="an-metric">Metric</label>
+            <select id="an-metric">
+              <option value="cashTips">Cash tips</option>
+              <option value="creditTips">Credit tips</option>
+              <option value="tips">Cash + credit tips</option>
+              <option value="driverPay">Drivers' pay</option>
+            </select>
+          </div>
+          <div class="analytics-filter" id="an-employee-filter">
+            <label for="an-employee">Employee</label>
+            <select id="an-employee"><option value="all">All employees</option></select>
+          </div>
+          <div class="analytics-filter" id="an-driver-filter" style="display:none">
+            <label for="an-driver">Driver</label>
+            <select id="an-driver"><option value="all">All drivers</option></select>
+          </div>
+          <div class="analytics-filter">
+            <label for="an-period">Period</label>
+            <select id="an-period">
+              <option value="week">Weekly</option>
+              <option value="month" selected>Monthly</option>
+              <option value="year">Yearly</option>
+            </select>
+          </div>
+          <div class="analytics-filter">
+            <label for="an-bucket" id="an-bucket-label">Month</label>
+            <select id="an-bucket"><option value="all">All months</option></select>
+          </div>
+          <div class="analytics-filter">
+            <label for="an-view">View</label>
+            <select id="an-view">
+              <option value="bar">Bar chart</option>
+              <option value="table">Table</option>
+              <option value="multiples">Multiple charts (per store)</option>
+            </select>
+          </div>
+        </div>
+        <div id="analytics-body">
+          <p class="empty-state">Loading&hellip;</p>
+        </div>
       </div>
     </div>
 
@@ -51,7 +96,7 @@
           <label for="current-owner-password">Current password</label>
           <input type="password" id="current-owner-password" required />
           <label for="new-owner-password">New password</label>
-          <input type="password" id="new-owner-password" minlength="4" required />
+          <input type="password" id="new-owner-password" minlength="6" required />
           <button type="submit" class="btn-primary" style="margin-top:14px">Update password</button>
           <div class="error-msg" id="owner-pw-error"></div>
           <div class="success-msg" id="owner-pw-success"></div>
@@ -69,6 +114,13 @@
           <div class="error-msg" id="google-email-error"></div>
           <div class="success-msg" id="google-email-success"></div>
         </form>
+      </div>
+
+      <div class="card" style="max-width:440px; margin-top:20px">
+        <h2>Google Sheet sync</h2>
+        <p class="subtitle" id="sheets-status-text">Checking status&hellip;</p>
+        <div id="sheets-actions" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px"></div>
+        <div class="error-msg" id="sheets-error"></div>
       </div>
     </div>
   </div>
@@ -88,7 +140,10 @@
     a.addEventListener("click", (e) => {
       e.preventDefault();
       switchView(a.dataset.view);
-      if (a.dataset.view === "settings") loadGoogleConfig();
+      if (a.dataset.view === "settings") {
+        loadGoogleConfig();
+        loadSheetsStatus();
+      }
     });
   });
 
@@ -99,7 +154,6 @@
 
   function renderStores() {
     const grid = document.getElementById("store-grid");
-    document.getElementById("stat-store-count").textContent = stores.length;
     if (stores.length === 0) {
       grid.innerHTML = '<p class="empty-state">No stores yet. Click "+ Add store" to create one.</p>';
       return;
@@ -107,9 +161,9 @@
     grid.innerHTML = stores
       .map(
         (s) => `
-        <div class="store-card" data-id="${s.id}">
-          <div class="store-card-header"><h3>${s.name}</h3></div>
-          <div class="store-id">ID: ${s.id}</div>
+        <div class="store-card" data-id="${escapeHtml(s.id)}">
+          <div class="store-card-header"><h3>${escapeHtml(s.name)}</h3></div>
+          <div class="store-id">ID: ${escapeHtml(s.id)}</div>
           <div class="store-card-actions">
             <button class="btn-primary btn-small open-store-btn">Open dashboard</button>
             <button class="btn-secondary btn-small edit-store-btn">Edit</button>
@@ -143,6 +197,7 @@
         try {
           await api(`/api/owner/branches/${id}`, { method: "DELETE" });
           await loadStores();
+          await loadAnalytics();
         } catch (err) {
           alert(err.message);
         }
@@ -155,21 +210,302 @@
     renderStores();
   }
 
+  // ---------- Analytics (pivot-style filterable chart/table) ----------
+
+  let analyticsData = null;
+  let analyticsCharts = [];
+  const CHART_COLORS = ["#2563eb", "#f59e0b", "#16a34a", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#65a30d"];
+
+  async function loadAnalytics() {
+    analyticsData = await api("/api/owner/analytics");
+    populateAnalyticsFilters();
+    populateBucketFilter();
+    renderAnalytics();
+  }
+
+  function populateAnalyticsFilters() {
+    const storeSelect = document.getElementById("an-store");
+    const prevStore = storeSelect.value;
+    storeSelect.innerHTML =
+      `<option value="all">All stores</option>` +
+      analyticsData.branches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join("");
+    if ([...storeSelect.options].some((o) => o.value === prevStore)) storeSelect.value = prevStore;
+    populateEmployeeAndDriverFilters();
+  }
+
+  function populateEmployeeAndDriverFilters() {
+    const storeId = document.getElementById("an-store").value;
+    const branchNameById = new Map(analyticsData.branches.map((b) => [b.id, b.name]));
+
+    const employeeSelect = document.getElementById("an-employee");
+    const prevEmployee = employeeSelect.value;
+    const employees = analyticsData.employees.filter((e) => storeId === "all" || e.branchId === storeId);
+    employeeSelect.innerHTML =
+      `<option value="all">All employees</option>` +
+      employees
+        .map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.name)}${storeId === "all" ? ` (${escapeHtml(branchNameById.get(e.branchId) || "")})` : ""}</option>`)
+        .join("");
+    if ([...employeeSelect.options].some((o) => o.value === prevEmployee)) employeeSelect.value = prevEmployee;
+
+    const driverSelect = document.getElementById("an-driver");
+    const prevDriver = driverSelect.value;
+    const drivers = analyticsData.drivers.filter((d) => storeId === "all" || d.branchId === storeId);
+    driverSelect.innerHTML =
+      `<option value="all">All drivers</option>` +
+      drivers
+        .map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}${storeId === "all" ? ` (${escapeHtml(branchNameById.get(d.branchId) || "")})` : ""}</option>`)
+        .join("");
+    if ([...driverSelect.options].some((o) => o.value === prevDriver)) driverSelect.value = prevDriver;
+  }
+
+  function bucketKeyAndLabel(dateStr, period) {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    if (period === "year") return { key: String(y), label: String(y) };
+    if (period === "month") {
+      const key = `${y}-${pad2(m)}`;
+      const label = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+      return { key, label };
+    }
+    const monday = new Date(Date.UTC(y, m - 1, d));
+    const dow = (monday.getUTCDay() + 6) % 7;
+    monday.setUTCDate(monday.getUTCDate() - dow);
+    // UTC-anchored formatting (not common.js's toDateStr, which reads local
+    // Y/M/D and would drift a day in positive-UTC-offset timezones here).
+    const key = `${monday.getUTCFullYear()}-${pad2(monday.getUTCMonth() + 1)}-${pad2(monday.getUTCDate())}`;
+    const sunday = new Date(monday);
+    sunday.setUTCDate(monday.getUTCDate() + 6);
+    const sameYear = monday.getUTCFullYear() === sunday.getUTCFullYear();
+    const fromLabel = monday.toLocaleDateString("en-US", { month: "short", day: "numeric", year: sameYear ? undefined : "numeric", timeZone: "UTC" });
+    const toLabel = sunday.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    const label = `${fromLabel} – ${toLabel} (Week ${isoWeekNumber(monday)})`;
+    return { key, label };
+  }
+
+  // Mirrors backend/lib/store.js's isoWeekNumber(dateStr) exactly (Monday-start
+  // weeks, week 1 contains the year's first Thursday) so labels here match
+  // the branch History pages.
+  function isoWeekNumber(mondayDt) {
+    const dayNr = (mondayDt.getUTCDay() + 6) % 7;
+    const thursday = new Date(mondayDt);
+    thursday.setUTCDate(mondayDt.getUTCDate() - dayNr + 3);
+    const firstThursday = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 4));
+    const firstDayNr = (firstThursday.getUTCDay() + 6) % 7;
+    firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNr + 3);
+    return 1 + Math.round((thursday - firstThursday) / (7 * 24 * 3600 * 1000));
+  }
+
+  function metricValue(row, metric) {
+    if (metric === "cashTips") return row.cashTips;
+    if (metric === "creditTips") return row.creditTips;
+    if (metric === "tips") return row.cashTips + row.creditTips;
+    return row.finalPay; // driverPay
+  }
+
+  function getAnalyticsFilters() {
+    return {
+      storeId: document.getElementById("an-store").value,
+      metric: document.getElementById("an-metric").value,
+      employeeId: document.getElementById("an-employee").value,
+      driverId: document.getElementById("an-driver").value,
+      period: document.getElementById("an-period").value,
+      view: document.getElementById("an-view").value,
+      bucketKey: document.getElementById("an-bucket").value,
+    };
+  }
+
+  const PERIOD_NOUN = { week: "week", month: "month", year: "year" };
+
+  // Populates the "pick a specific week/month/year" dropdown from every
+  // bucket that actually has data under the current store/metric/employee/
+  // driver filters — independent of any bucket already selected, so this
+  // always reflects the full set of choices, not just the current one.
+  function populateBucketFilter() {
+    const filters = getAnalyticsFilters();
+    const { bucketKeys, bucketLabels } = buildSeries(filters);
+    const noun = PERIOD_NOUN[filters.period];
+    document.getElementById("an-bucket-label").textContent = noun.charAt(0).toUpperCase() + noun.slice(1);
+
+    const select = document.getElementById("an-bucket");
+    const prev = select.value;
+    select.innerHTML = `<option value="all">All ${noun}s</option>` + bucketKeys.map((k) => `<option value="${k}">${bucketLabels.get(k)}</option>`).join("");
+    select.value = [...select.options].some((o) => o.value === prev) ? prev : "all";
+  }
+
+  function buildSeries(filters) {
+    const isDriverMetric = filters.metric === "driverPay";
+    let rows = isDriverMetric ? analyticsData.deliveryRows : analyticsData.tipRows;
+    if (filters.storeId !== "all") rows = rows.filter((r) => r.branchId === filters.storeId);
+    if (!isDriverMetric && filters.employeeId !== "all") rows = rows.filter((r) => r.employeeId === filters.employeeId);
+    if (isDriverMetric && filters.driverId !== "all") rows = rows.filter((r) => r.driverId === filters.driverId);
+
+    const bucketLabels = new Map();
+    const byStore = new Map();
+    for (const row of rows) {
+      const { key, label } = bucketKeyAndLabel(row.date, filters.period);
+      bucketLabels.set(key, label);
+      if (!byStore.has(row.branchId)) byStore.set(row.branchId, new Map());
+      const m = byStore.get(row.branchId);
+      m.set(key, (m.get(key) || 0) + metricValue(row, filters.metric));
+    }
+    const bucketKeys = Array.from(bucketLabels.keys()).sort();
+    return { bucketKeys, bucketLabels, byStore };
+  }
+
+  function destroyCharts() {
+    analyticsCharts.forEach((c) => c.destroy());
+    analyticsCharts = [];
+  }
+
+  function metricLabel(metric) {
+    return { cashTips: "Cash tips (€)", creditTips: "Credit tips (€)", tips: "Cash + credit tips (€)", driverPay: "Drivers' pay (€)" }[metric];
+  }
+
+  function renderAnalytics() {
+    destroyCharts();
+    const filters = getAnalyticsFilters();
+    const { bucketKeys: allBucketKeys, bucketLabels, byStore } = buildSeries(filters);
+    const bucketKeys = filters.bucketKey === "all" ? allBucketKeys : allBucketKeys.filter((k) => k === filters.bucketKey);
+    const branchNameById = new Map(analyticsData.branches.map((b) => [b.id, b.name]));
+    const body = document.getElementById("analytics-body");
+
+    if (bucketKeys.length === 0) {
+      body.innerHTML = `<p class="empty-state">No data yet for this filter combination.</p>`;
+      return;
+    }
+
+    if (filters.view === "table") {
+      renderAnalyticsTable(body, bucketKeys, bucketLabels, byStore, branchNameById);
+    } else if (filters.view === "multiples") {
+      renderAnalyticsMultiples(body, bucketKeys, bucketLabels, byStore, branchNameById, filters);
+    } else {
+      renderAnalyticsBar(body, bucketKeys, bucketLabels, byStore, branchNameById, filters);
+    }
+  }
+
+  function renderAnalyticsBar(body, bucketKeys, bucketLabels, byStore, branchNameById, filters) {
+    body.innerHTML = `<div class="analytics-chart-wrap"><canvas id="an-canvas"></canvas></div>`;
+    const labels = bucketKeys.map((k) => bucketLabels.get(k));
+    const datasets = Array.from(byStore.entries()).map(([branchId, m], i) => ({
+      label: branchNameById.get(branchId) || branchId,
+      data: bucketKeys.map((k) => round2(m.get(k) || 0)),
+      backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+    }));
+    const ctx = document.getElementById("an-canvas").getContext("2d");
+    analyticsCharts.push(
+      new Chart(ctx, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: datasets.length > 1 }, title: { display: true, text: metricLabel(filters.metric) } },
+          scales: { y: { beginAtZero: true } },
+        },
+      })
+    );
+  }
+
+  function renderAnalyticsMultiples(body, bucketKeys, bucketLabels, byStore, branchNameById, filters) {
+    const labels = bucketKeys.map((k) => bucketLabels.get(k));
+    body.innerHTML = `<div class="analytics-multiples">${Array.from(byStore.keys())
+      .map((branchId) => `
+        <div class="analytics-multiple-card">
+          <h3>${escapeHtml(branchNameById.get(branchId) || branchId)}</h3>
+          <div class="analytics-chart-wrap"><canvas id="an-canvas-${escapeHtml(branchId)}"></canvas></div>
+        </div>
+      `)
+      .join("")}</div>`;
+    Array.from(byStore.entries()).forEach(([branchId, m], i) => {
+      const ctx = document.getElementById(`an-canvas-${branchId}`).getContext("2d");
+      analyticsCharts.push(
+        new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: metricLabel(filters.metric),
+                data: bucketKeys.map((k) => round2(m.get(k) || 0)),
+                backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } },
+          },
+        })
+      );
+    });
+  }
+
+  function renderAnalyticsTable(body, bucketKeys, bucketLabels, byStore, branchNameById) {
+    const storeIds = Array.from(byStore.keys());
+    const headerCells = storeIds.map((id) => `<th>${escapeHtml(branchNameById.get(id) || id)}</th>`).join("");
+    const rows = bucketKeys
+      .map((k) => {
+        let total = 0;
+        const cells = storeIds
+          .map((id) => {
+            const v = round2(byStore.get(id).get(k) || 0);
+            total += v;
+            return `<td>${formatMoney(v)}</td>`;
+          })
+          .join("");
+        return `<tr><td>${bucketLabels.get(k)}</td>${cells}${storeIds.length > 1 ? `<td><strong>${formatMoney(round2(total))}</strong></td>` : ""}</tr>`;
+      })
+      .join("");
+    body.innerHTML = `
+      <table>
+        <thead><tr><th>Period</th>${headerCells}${storeIds.length > 1 ? "<th>Total</th>" : ""}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
+  function round2(n) {
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
+  // These change which rows/buckets are in play, so the "specific
+  // week/month/year" dropdown's options need refreshing before re-rendering.
+  ["an-metric", "an-period", "an-employee", "an-driver"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", () => {
+      populateBucketFilter();
+      renderAnalytics();
+    });
+  });
+  ["an-view", "an-bucket"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", renderAnalytics);
+  });
+  document.getElementById("an-store").addEventListener("change", () => {
+    populateEmployeeAndDriverFilters();
+    populateBucketFilter();
+    renderAnalytics();
+  });
+  document.getElementById("an-metric").addEventListener("change", () => {
+    const isDriver = document.getElementById("an-metric").value === "driverPay";
+    document.getElementById("an-employee-filter").style.display = isDriver ? "none" : "flex";
+    document.getElementById("an-driver-filter").style.display = isDriver ? "flex" : "none";
+  });
+
   function openStoreModal(existing) {
     const isEdit = !!existing;
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
     overlay.innerHTML = `
       <div class="modal-card">
-        <h3>${isEdit ? `Edit ${existing.name}` : "Add a new store"}</h3>
+        <h3>${isEdit ? `Edit ${escapeHtml(existing.name)}` : "Add a new store"}</h3>
         <p class="subtitle">${isEdit ? "Leave a password blank to keep it unchanged." : "Set the store name and its two passwords."}</p>
         <form id="store-form">
           <label for="store-name">Store name</label>
-          <input type="text" id="store-name" value="${isEdit ? existing.name : ""}" required />
+          <input type="text" id="store-name" value="${isEdit ? escapeHtml(existing.name) : ""}" required />
           <label for="store-staff-password">${isEdit ? "New staff password (optional)" : "Staff password"}</label>
-          <input type="password" id="store-staff-password" ${isEdit ? "" : "required"} minlength="4" />
+          <input type="password" id="store-staff-password" ${isEdit ? "" : "required"} minlength="6" />
           <label for="store-admin-password">${isEdit ? "New admin password (optional)" : "Admin password"}</label>
-          <input type="password" id="store-admin-password" ${isEdit ? "" : "required"} minlength="4" />
+          <input type="password" id="store-admin-password" ${isEdit ? "" : "required"} minlength="6" />
           <div class="error-msg" id="store-form-error"></div>
           <div style="display:flex; gap:10px; margin-top:14px">
             <button type="submit" class="btn-primary">${isEdit ? "Save changes" : "Add store"}</button>
@@ -266,6 +602,50 @@
     }
   });
 
+  function formatSyncTime(iso) {
+    if (!iso) return "never";
+    return new Date(iso).toLocaleString();
+  }
+
+  async function loadSheetsStatus() {
+    const statusEl = document.getElementById("sheets-status-text");
+    const actionsEl = document.getElementById("sheets-actions");
+    const errorEl = document.getElementById("sheets-error");
+    errorEl.textContent = "";
+    try {
+      const status = await api("/api/owner/sheets-status");
+      if (!status.googleAuthConfigured) {
+        statusEl.textContent = "Set up Google sign-in above first — the Sheet is created under the same Google account.";
+        actionsEl.innerHTML = "";
+        return;
+      }
+      if (!status.connected) {
+        statusEl.textContent = "Not connected yet. Sign in as Owner with Google (from the login page) once — a Google Sheet is created automatically under that account and kept in sync from then on.";
+        actionsEl.innerHTML = "";
+        return;
+      }
+      statusEl.textContent = `Connected. Last synced: ${formatSyncTime(status.lastSyncedAt)}${status.pending ? " (sync pending…)" : ""}.`;
+      if (status.lastError) errorEl.textContent = `Last sync attempt failed: ${status.lastError}`;
+      actionsEl.innerHTML = `
+        <a class="btn-secondary btn-small" href="${escapeHtml(status.sheetUrl)}" target="_blank" rel="noopener">Open Google Sheet &#8599;</a>
+        <button type="button" class="btn-secondary btn-small" id="sheets-sync-now-btn">Sync now</button>
+        <button type="button" class="btn-danger btn-small" id="sheets-disconnect-btn">Disconnect</button>
+      `;
+      document.getElementById("sheets-sync-now-btn").addEventListener("click", async () => {
+        statusEl.textContent = "Syncing…";
+        await api("/api/owner/sheets-sync-now", { method: "POST" });
+        await loadSheetsStatus();
+      });
+      document.getElementById("sheets-disconnect-btn").addEventListener("click", async () => {
+        if (!confirm("Disconnect Google Sheet sync? Existing data in the Sheet is left as-is, but new changes will stop syncing until you sign in with Google again.")) return;
+        await api("/api/owner/sheets-disconnect", { method: "POST" });
+        await loadSheetsStatus();
+      });
+    } catch (err) {
+      statusEl.textContent = "Couldn't load sync status.";
+    }
+  }
+
   (async () => {
     const session = await requireSession();
     if (!session) return;
@@ -280,6 +660,11 @@
         <p class="empty-state">Couldn't load stores (${err.message}). <button type="button" class="btn-secondary btn-small" id="retry-btn">Retry</button></p>
       `;
       document.getElementById("retry-btn").addEventListener("click", () => window.location.reload());
+    }
+    try {
+      await loadAnalytics();
+    } catch (err) {
+      document.getElementById("analytics-body").innerHTML = `<p class="empty-state">Couldn't load analytics (${err.message}).</p>`;
     }
   })();
 </script>

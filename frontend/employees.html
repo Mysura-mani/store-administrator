@@ -40,8 +40,8 @@
     const rows = employees
       .map(
         (e) => `
-          <tr data-id="${e.id}">
-            <td><input type="text" class="name-input" value="${e.name}" /></td>
+          <tr data-id="${escapeHtml(e.id)}">
+            <td><input type="text" class="name-input" value="${escapeHtml(e.name)}" /></td>
             <td><span class="badge ${e.active ? "badge-active" : "badge-inactive"}">${e.active ? "Active" : "Inactive"}</span></td>
             <td class="actions-cell">
               <button class="btn-secondary save-btn">Save name</button>

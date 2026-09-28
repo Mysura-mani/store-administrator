@@ -1,13 +1,17 @@
-require("dotenv").config();
+﻿const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const { OAuth2Client } = require("google-auth-library");
 const store = require("./lib/store");
+const sheets = require("./lib/sheets");
 
 store.ensureSeeded();
+sheets.startBackgroundSync();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,14 +24,59 @@ const oauthClient = googleAuthConfigured
   ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
   : null;
 
-app.use(express.json());
+// Needed for express-session's cookie.secure "auto" mode to work correctly
+// when this app runs behind a reverse proxy that terminates TLS (Cloudflare
+// Tunnel, nginx, etc.) — without it, req.secure is always false even when
+// the original request was HTTPS, since Express only trusts
+// X-Forwarded-Proto from a configured proxy.
+app.set("trust proxy", 1);
+
+// Security headers (CSP, HSTS, clickjacking/MIME-sniffing protection, etc).
+// script-src/style-src need 'unsafe-inline' because every page here is a
+// single inline <script>/<style> with no build step — that's a real
+// reduction in what CSP alone can stop, so the primary XSS defense is
+// escaping user data before it ever reaches innerHTML (see escapeHtml in
+// frontend/common.js), not CSP. CSP still blocks foreign script/style/frame
+// sources, clickjacking, and object/embed injection.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
+    // Off: would block the Chart.js script fetched from the jsdelivr CDN.
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
+// Blocks brute-forcing any password (branch staff/admin, owner) by capping
+// attempts per IP. Applied only to routes that check a password.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many attempts. Please wait a few minutes and try again." },
+});
+
+app.use(express.json({ limit: "100kb" }));
 app.use(
   session({
     name: "tips.sid",
     secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
     resave: false,
     saveUninitialized: false,
-    cookie: { httpOnly: true, sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 },
+    cookie: { httpOnly: true, sameSite: "lax", secure: "auto", maxAge: 1000 * 60 * 60 * 12 },
   })
 );
 
@@ -61,7 +110,7 @@ function requireOwner(req, res, next) {
 
 // Staff can freely keep completing TODAY's entry (e.g. adding another driver
 // as their shift ends), but editing or deleting an entry for any other date
-// — a retroactive correction — requires admin.
+// â€” a retroactive correction â€” requires admin.
 function requireAdminForPastEdit(getEntry) {
   return (req, res, next) => {
     if (req.session.role === "admin") return next();
@@ -80,7 +129,7 @@ app.get("/api/branches", (req, res) => {
   res.json(store.getBranches());
 });
 
-app.post("/api/login", (req, res) => {
+app.post("/api/login", authLimiter, (req, res) => {
   const { branchId, password } = req.body || {};
   if (!branchId || !store.branchExists(branchId)) {
     return res.status(400).json({ error: "Choose a branch." });
@@ -93,7 +142,7 @@ app.post("/api/login", (req, res) => {
   res.json({ ok: true, role: "staff", branchId });
 });
 
-app.post("/api/elevate-admin", requireAuth, (req, res) => {
+app.post("/api/elevate-admin", authLimiter, requireAuth, (req, res) => {
   const { password } = req.body || {};
   if (!store.verifyAdminPassword(req.session.branchId, password)) {
     return res.status(401).json({ error: "Incorrect admin password." });
@@ -121,7 +170,7 @@ app.get("/api/session", requireAnyAuth, (req, res) => {
 
 // ---------- owner (super-admin over all branches) ----------
 
-app.post("/api/owner-login", (req, res) => {
+app.post("/api/owner-login", authLimiter, (req, res) => {
   const { password } = req.body || {};
   if (!store.verifyOwnerPassword(password)) {
     return res.status(401).json({ error: "Incorrect owner password." });
@@ -136,25 +185,29 @@ app.get("/api/owner/branches", requireOwner, (req, res) => {
   res.json(store.getBranches());
 });
 
+app.get("/api/owner/analytics", requireOwner, (req, res) => {
+  res.json(store.getAnalyticsData());
+});
+
 app.post("/api/owner/branches", requireOwner, (req, res) => {
   const { name, staffPassword, adminPassword } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: "Store name is required." });
-  if (!staffPassword || staffPassword.length < 4) {
-    return res.status(400).json({ error: "Staff password must be at least 4 characters." });
+  if (!staffPassword || staffPassword.length < 6) {
+    return res.status(400).json({ error: "Staff password must be at least 6 characters." });
   }
-  if (!adminPassword || adminPassword.length < 4) {
-    return res.status(400).json({ error: "Admin password must be at least 4 characters." });
+  if (!adminPassword || adminPassword.length < 6) {
+    return res.status(400).json({ error: "Admin password must be at least 6 characters." });
   }
   res.status(201).json(store.createBranch({ name, staffPassword, adminPassword }));
 });
 
 app.put("/api/owner/branches/:id", requireOwner, (req, res) => {
   const { name, staffPassword, adminPassword } = req.body || {};
-  if (staffPassword && staffPassword.length < 4) {
-    return res.status(400).json({ error: "Staff password must be at least 4 characters." });
+  if (staffPassword && staffPassword.length < 6) {
+    return res.status(400).json({ error: "Staff password must be at least 6 characters." });
   }
-  if (adminPassword && adminPassword.length < 4) {
-    return res.status(400).json({ error: "Admin password must be at least 4 characters." });
+  if (adminPassword && adminPassword.length < 6) {
+    return res.status(400).json({ error: "Admin password must be at least 6 characters." });
   }
   const updated = store.updateBranchByOwner(req.params.id, { name, staffPassword, adminPassword });
   if (!updated) return res.status(404).json({ error: "Store not found." });
@@ -186,13 +239,13 @@ app.post("/api/owner/return", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/owner/change-password", requireOwner, (req, res) => {
+app.post("/api/owner/change-password", authLimiter, requireOwner, (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
   if (!store.verifyOwnerPassword(currentPassword)) {
     return res.status(401).json({ error: "Current owner password is incorrect." });
   }
-  if (!newPassword || newPassword.length < 4) {
-    return res.status(400).json({ error: "New password must be at least 4 characters." });
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: "New password must be at least 6 characters." });
   }
   store.updateOwnerPassword(newPassword);
   res.json({ ok: true });
@@ -220,6 +273,25 @@ app.put("/api/owner/google-email", requireOwner, (req, res) => {
   res.json({ ok: true, email: store.getOwnerGoogleEmail() });
 });
 
+app.get("/api/owner/sheets-status", requireOwner, (req, res) => {
+  res.json(sheets.getStatus());
+});
+
+app.post("/api/owner/sheets-sync-now", requireOwner, async (req, res) => {
+  try {
+    sheets.markDirtyAll();
+    await sheets.flushNow();
+  } catch (err) {
+    // status still reflects the failure via lastError; nothing more to do here
+  }
+  res.json(sheets.getStatus());
+});
+
+app.post("/api/owner/sheets-disconnect", requireOwner, (req, res) => {
+  sheets.disconnect();
+  res.json(sheets.getStatus());
+});
+
 app.get("/auth/google", (req, res) => {
   if (!googleAuthConfigured || !store.getOwnerGoogleEmail()) {
     return res.redirect("/login.html?error=google_not_configured");
@@ -227,10 +299,13 @@ app.get("/auth/google", (req, res) => {
   const state = crypto.randomBytes(16).toString("hex");
   req.session.googleOAuthState = state;
   const url = oauthClient.generateAuthUrl({
-    access_type: "online",
-    scope: ["openid", "email"],
+    // offline + consent so Google issues a refresh token we can use later
+    // (in the background, without the Owner being logged in) to keep the
+    // Google Sheet in sync.
+    access_type: "offline",
+    scope: sheets.getScopes(),
     state,
-    prompt: "select_account",
+    prompt: "consent select_account",
   });
   res.redirect(url);
 });
@@ -254,6 +329,7 @@ app.get("/auth/google/callback", async (req, res) => {
     req.session.role = "owner";
     delete req.session.branchId;
     delete req.session.viaOwner;
+    sheets.handleOwnerLogin(tokens).catch(() => {});
     res.redirect("/owner-dashboard.html");
   } catch (err) {
     res.redirect("/login.html?error=google_login_failed");
@@ -452,20 +528,20 @@ app.put("/api/rates", requireAuth, requireAdmin, (req, res) => {
 
 app.post("/api/settings/staff-password", requireAuth, requireAdmin, (req, res) => {
   const { newPassword } = req.body || {};
-  if (!newPassword || newPassword.length < 4) {
-    return res.status(400).json({ error: "New password must be at least 4 characters." });
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: "New password must be at least 6 characters." });
   }
   store.updateBranchStaffPassword(req.session.branchId, newPassword);
   res.json({ ok: true });
 });
 
-app.post("/api/settings/admin-password", requireAuth, requireAdmin, (req, res) => {
+app.post("/api/settings/admin-password", authLimiter, requireAuth, requireAdmin, (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
   if (!store.verifyAdminPassword(req.session.branchId, currentPassword)) {
     return res.status(401).json({ error: "Current admin password is incorrect." });
   }
-  if (!newPassword || newPassword.length < 4) {
-    return res.status(400).json({ error: "New password must be at least 4 characters." });
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: "New password must be at least 6 characters." });
   }
   store.updateBranchAdminPassword(req.session.branchId, newPassword);
   res.json({ ok: true });
@@ -480,6 +556,14 @@ app.use(
     setHeaders: (res) => res.setHeader("Cache-Control", "no-store"),
   })
 );
+
+// Catches anything an earlier handler didn't — never leaks a stack trace or
+// internal error detail to the client, only logs it server-side.
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: "Something went wrong. Please try again." });
+});
 
 app.listen(PORT, () => {
   console.log(`Tips Tracker running at http://localhost:${PORT}`);

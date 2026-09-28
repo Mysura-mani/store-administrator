@@ -63,7 +63,7 @@
           .join("");
         return `
           <tr>
-            <td><button class="expand-toggle" data-target="${row.employeeId}">&#9656;</button> ${row.name}</td>
+            <td><button class="expand-toggle" data-target="${row.employeeId}">&#9656;</button> ${escapeHtml(row.name)}</td>
             <td>${formatMoney(row.creditTips)}</td>
             <td>${formatMoney(row.cashTips)}</td>
             <td>${formatMoney(row.total)}</td>

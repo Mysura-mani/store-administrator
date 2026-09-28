@@ -112,6 +112,20 @@ function setOwnerGoogleEmail(email) {
   saveConfig(cfg);
 }
 
+// Google Sheets sync state (refresh token, spreadsheet id, sync bookkeeping).
+// Stored in the same gitignored config file as everything else sensitive
+// (password hashes, etc.) — never exposed through any API response.
+function getGoogleSheetsState() {
+  return getConfig().googleSheets || {};
+}
+
+function setGoogleSheetsState(patch) {
+  const cfg = getConfig();
+  cfg.googleSheets = { ...(cfg.googleSheets || {}), ...patch };
+  saveConfig(cfg);
+  return cfg.googleSheets;
+}
+
 function slugify(name) {
   return (
     name
@@ -254,6 +268,9 @@ function writeBranchData(branchId, branchData) {
   const data = readAllData();
   data.branches[branchId] = branchData;
   writeAllData(data);
+  // Required lazily (not at module load) to avoid a circular require, since
+  // sheets.js reads branch data back out via exportAllDataForSync() below.
+  require("./sheets").markDirtyAll();
 }
 
 function newId() {
@@ -816,6 +833,60 @@ function buildDeliveryHistory({ branchId, mode, anchor }) {
   };
 }
 
+// ---------- flattened cross-branch dataset ----------
+// One row per employee-shift / driver-day, already computed (shares, pay) —
+// used both for the owner's analytics dashboard and to mirror business data
+// into the Google Sheet (backend/lib/sheets.js), so both stay in lockstep.
+function getAnalyticsData() {
+  const branches = getBranches();
+  const employees = [];
+  const drivers = [];
+  const tipRows = [];
+  const deliveryRows = [];
+  for (const b of branches) {
+    for (const e of listEmployees(b.id, { includeInactive: true })) {
+      employees.push({ id: e.id, branchId: b.id, name: e.name, active: e.active });
+    }
+    for (const d of listDrivers(b.id, { includeInactive: true })) {
+      drivers.push({ id: d.id, branchId: b.id, name: d.name, active: d.active });
+    }
+    for (const entry of listEntries(b.id)) {
+      for (const share of entry.shares) {
+        tipRows.push({
+          entryId: entry.id,
+          branchId: b.id,
+          date: entry.date,
+          employeeId: share.employeeId,
+          hours: share.hours,
+          cashTips: share.cashShare,
+          creditTips: share.creditShare,
+        });
+      }
+    }
+    for (const entry of listDeliveryEntries(b.id)) {
+      for (const share of entry.shares) {
+        deliveryRows.push({
+          entryId: entry.id,
+          branchId: b.id,
+          date: entry.date,
+          driverId: share.driverId,
+          hours: share.hours,
+          zoneCounts: share.zoneCounts,
+          basePay: share.basePay,
+          deliveryPay: share.deliveryPay,
+          tips: share.tips,
+          topUpApplied: share.topUpApplied,
+          finalPay: share.finalPay,
+          cashOrderCount: share.cashOrderCount,
+          cashOrderValue: share.cashOrderValue,
+          note: share.note,
+        });
+      }
+    }
+  }
+  return { branches, employees, drivers, tipRows, deliveryRows };
+}
+
 module.exports = {
   ensureSeeded,
   getBranches,
@@ -824,6 +895,9 @@ module.exports = {
   updateOwnerPassword,
   getOwnerGoogleEmail,
   setOwnerGoogleEmail,
+  getGoogleSheetsState,
+  setGoogleSheetsState,
+  getAnalyticsData,
   createBranch,
   updateBranchByOwner,
   deleteBranch,

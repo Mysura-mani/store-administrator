@@ -74,7 +74,7 @@ function renderShell(session, activePage, section) {
     : "";
 
   document.getElementById("topbar").innerHTML = `
-    <div class="brand"><a href="/dashboard.html">Tips<span>Tracker</span></a> <span class="branch-tag">${session.branchName || session.branchId}</span></div>
+    <div class="brand"><a href="/dashboard.html">Tips<span>Tracker</span></a> <span class="branch-tag">${escapeHtml(session.branchName || session.branchId)}</span></div>
     <div class="nav section-tabs">${tabsHtml}</div>
     <div class="nav">${navHtml}</div>
     <div class="user-pill">
@@ -145,6 +145,21 @@ function formatMoney(n) {
   return `€${Number(n).toFixed(2)}`;
 }
 
+// Every place a value that ultimately came from user input (an employee,
+// driver, branch/store name, a delivery note, ...) gets interpolated into an
+// innerHTML template string MUST go through this first — otherwise someone
+// entering e.g. `<img src=x onerror=...>` as a name stores script that runs
+// in whoever views that list next (a classic stored-XSS path).
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[c]));
+}
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -158,3 +173,35 @@ function toDateStr(d) {
 function todayStr() {
   return toDateStr(new Date());
 }
+
+// ---------- cookie notice ----------
+// This app only ever sets one cookie — the login session (tips.sid) — which
+// is strictly necessary for the site to work at all, so there's nothing to
+// opt in or out of. This is an informational notice (not a consent gate)
+// pointing to the Cookie Policy; dismissing it never affects login.
+(function renderCookieBanner() {
+  try {
+    if (localStorage.getItem("cookieNoticeDismissed") === "1") return;
+  } catch (_) {
+    return; // storage unavailable (private window, etc.) — skip rather than nag every load
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    const banner = document.createElement("div");
+    banner.className = "cookie-banner";
+    banner.innerHTML = `
+      <p>This site uses only the essential cookie needed to keep you signed in. See our <a href="/cookie-policy.html">Cookie Policy</a>.</p>
+      <div class="cookie-actions">
+        <button type="button" class="btn-primary" id="cookie-banner-ok">Got it</button>
+      </div>
+    `;
+    document.body.appendChild(banner);
+    document.getElementById("cookie-banner-ok").addEventListener("click", () => {
+      try {
+        localStorage.setItem("cookieNoticeDismissed", "1");
+      } catch (_) {
+        /* ignore */
+      }
+      banner.remove();
+    });
+  });
+})();

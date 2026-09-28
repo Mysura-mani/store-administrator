@@ -7,42 +7,67 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="login-split">
-  <div class="login-illustration">
-    <div class="blob b1"></div>
-    <div class="blob b2"></div>
-    <div class="login-illustration-content">
-      <div class="login-brand">Tips<span>Tracker</span></div>
-      <div class="login-icon">&#128188;</div>
-      <h2>Welcome back. Give your best report today.</h2>
-      <p>Log tips and delivery payouts, track pay per employee and driver, and keep every store's numbers straight from one place.</p>
-    </div>
-  </div>
+<div class="login-page">
+  <img class="login-bg" src="/login-illustration.png" alt="" />
 
-  <div class="login-form-panel">
-    <div class="login-form-card">
-      <div class="login-eyebrow"><span class="login-eyebrow-icon">&#128101;</span> Dashboard Login</div>
+  <div class="login-card">
+    <div class="login-card-top">
+      <div class="login-eyebrow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+          <path d="M2 20c0-3 2.5-5.5 6-5.5s6 2.5 6 5.5" />
+          <path d="M16 8a2.5 2.5 0 1 0 0-5" />
+          <path d="M14.5 14.8c2.9.4 4.5 2.4 4.5 5.2" />
+        </svg>
+        Dashboard Login
+      </div>
+    </div>
+
+    <div class="login-card-body">
+      <div class="login-error" id="error"></div>
       <h1>WELCOME BACK</h1>
       <p class="subtitle">Give your best report today!</p>
 
       <form id="login-form">
         <label for="store-select">Store</label>
         <div class="input-with-icon">
-          <span class="field-icon">&#128100;</span>
+          <span class="field-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="8" r="3.5" />
+              <path d="M5 20c0-3.87 3.13-6 7-6s7 2.13 7 6" />
+            </svg>
+          </span>
           <select id="store-select"></select>
+          <span class="chevron">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </span>
         </div>
 
         <div id="password-block">
           <label for="password">Password</label>
           <div class="input-with-icon">
-            <span class="field-icon">&#128274;</span>
+            <span class="field-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="5" y="11" width="14" height="9" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+              </svg>
+            </span>
             <input type="password" id="password" />
           </div>
         </div>
 
-        <div class="error-msg" id="error"></div>
-
-        <button type="submit" class="btn-primary btn-full" id="submit-btn">Login to My Account</button>
+        <button type="submit" class="btn-primary btn-full" id="submit-btn">
+          <span class="btn-icon-row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+              <path d="M10 17l5-5-5-5" />
+              <path d="M15 12H3" />
+            </svg>
+            Login to My Account
+          </span>
+        </button>
       </form>
 
       <div id="google-block" style="display:none">
@@ -53,6 +78,12 @@
         </button>
       </div>
     </div>
+  </div>
+
+  <div class="login-legal-footer">
+    <a href="/privacy-policy.html">Privacy Policy</a>
+    <a href="/terms.html">Terms &amp; Conditions</a>
+    <a href="/cookie-policy.html">Cookie Policy</a>
   </div>
 </div>
 
@@ -67,7 +98,7 @@
 
   function populateSelect() {
     const select = document.getElementById("store-select");
-    const branchOptions = branches.map((b) => `<option value="${b.id}">${b.name}</option>`).join("");
+    const branchOptions = branches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join("");
     select.innerHTML = `${branchOptions}<option value="__owner__">Owner</option>`;
     select.addEventListener("change", updateGoogleVisibility);
   }

@@ -44,7 +44,7 @@
   let rates = null;
 
   function driverOptionsHtml(selectedId) {
-    return drivers.map((d) => `<option value="${d.id}" ${d.id === selectedId ? "selected" : ""}>${d.name}</option>`).join("");
+    return drivers.map((d) => `<option value="${escapeHtml(d.id)}" ${d.id === selectedId ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("");
   }
 
   function zoneInputsHtml(zoneCounts) {
@@ -98,7 +98,7 @@
         </div>
         <div style="max-width:420px">
           <label>Note (optional)</label>
-          <input type="text" class="d-note" value="${note.replace(/"/g, "&quot;")}" placeholder="Any notes about these cash orders..." maxlength="500" />
+          <input type="text" class="d-note" value="${escapeHtml(note)}" placeholder="Any notes about these cash orders..." maxlength="500" />
         </div>
         <div class="cash-order-values"></div>
         <p class="hint">Cash to return: <strong class="cash-return-amount">&euro;0.00</strong></p>

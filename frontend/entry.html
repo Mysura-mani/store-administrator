@@ -53,7 +53,7 @@
 
   function shiftRowHtml(employeeId = "", hours = "") {
     const options = employees
-      .map((e) => `<option value="${e.id}" ${e.id === employeeId ? "selected" : ""}>${e.name}</option>`)
+      .map((e) => `<option value="${escapeHtml(e.id)}" ${e.id === employeeId ? "selected" : ""}>${escapeHtml(e.name)}</option>`)
       .join("");
     return `
       <div class="shift-row">
