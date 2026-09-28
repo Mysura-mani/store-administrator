@@ -57,6 +57,19 @@
           <div class="success-msg" id="owner-pw-success"></div>
         </form>
       </div>
+
+      <div class="card" style="max-width:440px; margin-top:20px">
+        <h2>Sign in with Google</h2>
+        <p class="subtitle" id="google-status-text">Checking status&hellip;</p>
+        <form id="google-email-form">
+          <label for="owner-google-email">Authorized Google account</label>
+          <input type="email" id="owner-google-email" placeholder="you@gmail.com" />
+          <p class="hint">Leave blank and save to turn Google sign-in off. Only this exact Gmail address will be able to sign in as Owner with Google.</p>
+          <button type="submit" class="btn-primary" style="margin-top:14px">Save</button>
+          <div class="error-msg" id="google-email-error"></div>
+          <div class="success-msg" id="google-email-success"></div>
+        </form>
+      </div>
     </div>
   </div>
 </div>
@@ -75,6 +88,7 @@
     a.addEventListener("click", (e) => {
       e.preventDefault();
       switchView(a.dataset.view);
+      if (a.dataset.view === "settings") loadGoogleConfig();
     });
   });
 
@@ -212,6 +226,41 @@
       });
       successEl.textContent = "Password updated.";
       e.target.reset();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  async function loadGoogleConfig() {
+    const statusEl = document.getElementById("google-status-text");
+    try {
+      const config = await api("/api/owner/google-config");
+      if (!config.configured) {
+        statusEl.textContent = "Not set up yet — add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to the server's .env file first (see .env.example), then restart the server.";
+      } else if (config.email) {
+        statusEl.textContent = `Google sign-in is on for ${config.email}.`;
+      } else {
+        statusEl.textContent = "Google credentials are configured, but no account is authorized yet. Add one below to turn it on.";
+      }
+      document.getElementById("owner-google-email").value = config.email || "";
+    } catch (err) {
+      statusEl.textContent = "Couldn't load Google sign-in status.";
+    }
+  }
+
+  document.getElementById("google-email-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById("google-email-error");
+    const successEl = document.getElementById("google-email-success");
+    errorEl.textContent = "";
+    successEl.textContent = "";
+    try {
+      await api("/api/owner/google-email", {
+        method: "PUT",
+        body: JSON.stringify({ email: document.getElementById("owner-google-email").value.trim() }),
+      });
+      successEl.textContent = "Saved.";
+      await loadGoogleConfig();
     } catch (err) {
       errorEl.textContent = err.message;
     }

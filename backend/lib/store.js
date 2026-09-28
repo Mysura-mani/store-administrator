@@ -98,6 +98,20 @@ function updateOwnerPassword(newPassword) {
   saveConfig(cfg);
 }
 
+// The single Gmail address allowed to sign in as owner via Google. Unset by
+// default — "Sign in with Google" stays disabled until the owner sets this
+// themselves (from the owner dashboard, after logging in with the password),
+// so there's no bootstrap gap where an unconfigured Google login could work.
+function getOwnerGoogleEmail() {
+  return getConfig().ownerGoogleEmail || null;
+}
+
+function setOwnerGoogleEmail(email) {
+  const cfg = getConfig();
+  cfg.ownerGoogleEmail = email ? email.trim().toLowerCase() : null;
+  saveConfig(cfg);
+}
+
 function slugify(name) {
   return (
     name
@@ -808,6 +822,8 @@ module.exports = {
   branchExists,
   verifyOwnerPassword,
   updateOwnerPassword,
+  getOwnerGoogleEmail,
+  setOwnerGoogleEmail,
   createBranch,
   updateBranchByOwner,
   deleteBranch,

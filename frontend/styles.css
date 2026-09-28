@@ -408,6 +408,20 @@ tbody tr:hover { background: #fafbfc; }
 }
 .input-with-icon:has(input)::after { content: none; }
 
+.or-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--muted); font-size: 12px; }
+.or-divider::before, .or-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.btn-google:hover { background: #f9fafb; }
+
 /* The illustration hides only on genuinely narrow (phone-width) viewports —
    the Claude desktop browser pane's own default width is ~740px, which must
    still show it. */

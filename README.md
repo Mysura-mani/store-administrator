@@ -84,6 +84,30 @@ The owner password is stored the same way as everything else — hashed in
 already-existing installs, which get the owner account backfilled on next
 start).
 
+### Owner sign-in with Google (optional)
+
+As an alternative to the owner password, the owner can sign in with a real
+Gmail account instead. This is entirely opt-in and off by default — the
+password keeps working either way.
+
+To turn it on:
+
+1. Copy `.env.example` to `.env` and follow the instructions inside it to
+   create a free Google OAuth client at
+   [console.cloud.google.com](https://console.cloud.google.com/apis/credentials),
+   then fill in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Restart the
+   server after saving `.env`.
+2. Log in as Owner with the password, go to **Settings**, and enter the
+   exact Gmail address that should be allowed to sign in — only that one
+   address will ever be accepted.
+3. A "Continue with Google" button now appears on the login page whenever
+   "Owner" is selected.
+
+Nothing about Google is ever treated as a database or data store — it's
+purely an alternate way to prove who the owner is. All the actual data
+(employees, entries, rates, password hashes) stays exactly where it already
+is, in `backend/data/`.
+
 - On the login page, pick a branch and enter its **staff password** to open
   that branch's dashboard, where you choose Tip Sheet or Delivery. Each
   branch has its own employees, drivers, tip history and delivery history —

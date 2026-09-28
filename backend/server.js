@@ -1,13 +1,24 @@
+require("dotenv").config();
+
 const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
+const { OAuth2Client } = require("google-auth-library");
 const store = require("./lib/store");
 
 store.ensureSeeded();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/auth/google/callback`;
+const googleAuthConfigured = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
+const oauthClient = googleAuthConfigured
+  ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
+  : null;
 
 app.use(express.json());
 app.use(
@@ -185,6 +196,68 @@ app.post("/api/owner/change-password", requireOwner, (req, res) => {
   }
   store.updateOwnerPassword(newPassword);
   res.json({ ok: true });
+});
+
+// ---------- owner sign-in with Google ----------
+
+// Whether the "Sign in with Google" button should even be shown: the server
+// needs a Google OAuth client configured (env vars) AND the owner needs to
+// have set an authorized Gmail address from the dashboard.
+app.get("/api/auth/google/available", (req, res) => {
+  res.json({ available: googleAuthConfigured && !!store.getOwnerGoogleEmail() });
+});
+
+app.get("/api/owner/google-config", requireOwner, (req, res) => {
+  res.json({ configured: googleAuthConfigured, email: store.getOwnerGoogleEmail() });
+});
+
+app.put("/api/owner/google-email", requireOwner, (req, res) => {
+  const { email } = req.body || {};
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Enter a valid email address, or leave it blank to disable Google sign-in." });
+  }
+  store.setOwnerGoogleEmail(email || null);
+  res.json({ ok: true, email: store.getOwnerGoogleEmail() });
+});
+
+app.get("/auth/google", (req, res) => {
+  if (!googleAuthConfigured || !store.getOwnerGoogleEmail()) {
+    return res.redirect("/login.html?error=google_not_configured");
+  }
+  const state = crypto.randomBytes(16).toString("hex");
+  req.session.googleOAuthState = state;
+  const url = oauthClient.generateAuthUrl({
+    access_type: "online",
+    scope: ["openid", "email"],
+    state,
+    prompt: "select_account",
+  });
+  res.redirect(url);
+});
+
+app.get("/auth/google/callback", async (req, res) => {
+  const { code, state } = req.query;
+  const expectedState = req.session.googleOAuthState;
+  delete req.session.googleOAuthState;
+
+  if (!googleAuthConfigured || !code || !state || state !== expectedState) {
+    return res.redirect("/login.html?error=google_login_failed");
+  }
+  try {
+    const { tokens } = await oauthClient.getToken({ code, redirect_uri: GOOGLE_REDIRECT_URI });
+    const ticket = await oauthClient.verifyIdToken({ idToken: tokens.id_token, audience: GOOGLE_CLIENT_ID });
+    const payload = ticket.getPayload();
+    const authorizedEmail = store.getOwnerGoogleEmail();
+    if (!payload.email_verified || !authorizedEmail || payload.email.toLowerCase() !== authorizedEmail) {
+      return res.redirect("/login.html?error=google_email_not_authorized");
+    }
+    req.session.role = "owner";
+    delete req.session.branchId;
+    delete req.session.viaOwner;
+    res.redirect("/owner-dashboard.html");
+  } catch (err) {
+    res.redirect("/login.html?error=google_login_failed");
+  }
 });
 
 // ---------- employees ----------
