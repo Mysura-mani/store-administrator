@@ -117,10 +117,9 @@
       </div>
 
       <div class="card" style="max-width:440px; margin-top:20px">
-        <h2>Google Sheet sync</h2>
-        <p class="subtitle" id="sheets-status-text">Checking status&hellip;</p>
+        <h2>Data storage</h2>
+        <p class="subtitle" id="sheets-status-text">Loading&hellip;</p>
         <div id="sheets-actions" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px"></div>
-        <div class="error-msg" id="sheets-error"></div>
       </div>
     </div>
   </div>
@@ -602,47 +601,20 @@
     }
   });
 
-  function formatSyncTime(iso) {
-    if (!iso) return "never";
-    return new Date(iso).toLocaleString();
-  }
-
   async function loadSheetsStatus() {
     const statusEl = document.getElementById("sheets-status-text");
     const actionsEl = document.getElementById("sheets-actions");
-    const errorEl = document.getElementById("sheets-error");
-    errorEl.textContent = "";
     try {
-      const status = await api("/api/owner/sheets-status");
-      if (!status.googleAuthConfigured) {
-        statusEl.textContent = "Set up Google sign-in above first — the Sheet is created under the same Google account.";
+      const info = await api("/api/owner/sheet-info");
+      if (!info.sheetUrl) {
+        statusEl.textContent = "No Google Sheet is configured for this deployment.";
         actionsEl.innerHTML = "";
         return;
       }
-      if (!status.connected) {
-        statusEl.textContent = "Not connected yet. Sign in as Owner with Google (from the login page) once — a Google Sheet is created automatically under that account and kept in sync from then on.";
-        actionsEl.innerHTML = "";
-        return;
-      }
-      statusEl.textContent = `Connected. Last synced: ${formatSyncTime(status.lastSyncedAt)}${status.pending ? " (sync pending…)" : ""}.`;
-      if (status.lastError) errorEl.textContent = `Last sync attempt failed: ${status.lastError}`;
-      actionsEl.innerHTML = `
-        <a class="btn-secondary btn-small" href="${escapeHtml(status.sheetUrl)}" target="_blank" rel="noopener">Open Google Sheet &#8599;</a>
-        <button type="button" class="btn-secondary btn-small" id="sheets-sync-now-btn">Sync now</button>
-        <button type="button" class="btn-danger btn-small" id="sheets-disconnect-btn">Disconnect</button>
-      `;
-      document.getElementById("sheets-sync-now-btn").addEventListener("click", async () => {
-        statusEl.textContent = "Syncing…";
-        await api("/api/owner/sheets-sync-now", { method: "POST" });
-        await loadSheetsStatus();
-      });
-      document.getElementById("sheets-disconnect-btn").addEventListener("click", async () => {
-        if (!confirm("Disconnect Google Sheet sync? Existing data in the Sheet is left as-is, but new changes will stop syncing until you sign in with Google again.")) return;
-        await api("/api/owner/sheets-disconnect", { method: "POST" });
-        await loadSheetsStatus();
-      });
+      statusEl.textContent = "All store data (employees, drivers, tip entries, delivery entries) reads and writes directly to this Google Sheet — every save takes effect immediately.";
+      actionsEl.innerHTML = `<a class="btn-secondary btn-small" href="${escapeHtml(info.sheetUrl)}" target="_blank" rel="noopener">Open Google Sheet &#8599;</a>`;
     } catch (err) {
-      statusEl.textContent = "Couldn't load sync status.";
+      statusEl.textContent = "Couldn't load storage info.";
     }
   }
 

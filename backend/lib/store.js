@@ -1,11 +1,11 @@
-const fs = require("fs");
-const path = require("path");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
+const sheetsClient = require("./sheetsClient");
 
-const DATA_DIR = path.join(__dirname, "..", "data");
-const CONFIG_PATH = path.join(DATA_DIR, "config.json");
-const DATA_PATH = path.join(DATA_DIR, "data.json");
+// Everything — branch/owner config AND business data — now lives in the
+// Google Sheet identified by GOOGLE_SHEET_ID. There is no local file storage
+// left in this module: that's what makes this app deployable to a
+// serverless host (Vercel) with no writable/persistent disk.
 
 const DEFAULT_BRANCHES = [
   { id: "A", name: "Branch A", staffPassword: "a123", adminPassword: "aadmin123" },
@@ -22,30 +22,37 @@ const DEFAULT_RATES = {
 
 const DEFAULT_OWNER_PASSWORD = "owner123";
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-function readJson(filePath, fallback) {
-  if (!fs.existsSync(filePath)) return fallback;
-  const raw = fs.readFileSync(filePath, "utf8").trim();
-  if (!raw) return fallback;
-  return JSON.parse(raw);
-}
-
-function writeJson(filePath, value) {
-  ensureDataDir();
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), "utf8");
-}
+const CONFIG_HEADERS = ["key", "value"];
+const EMPLOYEES_HEADERS = ["id", "branchId", "name", "active"];
+const DRIVERS_HEADERS = ["id", "branchId", "name", "active"];
+const ENTRIES_HEADERS = ["id", "branchId", "date", "cashTips", "creditTips", "shiftsJson"];
+const DELIVERY_ENTRIES_HEADERS = ["id", "branchId", "date", "driverCount", "driversJson"];
 
 function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-// ---------- config (branches + credentials) ----------
+function newId() {
+  return crypto.randomUUID();
+}
 
+// ---------- config (branches + credentials), stored as key/value rows ----------
+
+let seededPromise = null;
 function ensureSeeded() {
-  if (!fs.existsSync(CONFIG_PATH)) {
+  if (!seededPromise) seededPromise = doEnsureSeeded();
+  return seededPromise;
+}
+
+async function doEnsureSeeded() {
+  await sheetsClient.ensureTab("Config", CONFIG_HEADERS);
+  await sheetsClient.ensureTab("Employees", EMPLOYEES_HEADERS);
+  await sheetsClient.ensureTab("Drivers", DRIVERS_HEADERS);
+  await sheetsClient.ensureTab("Entries", ENTRIES_HEADERS);
+  await sheetsClient.ensureTab("DeliveryEntries", DELIVERY_ENTRIES_HEADERS);
+
+  const cfg = await getConfig();
+  if (!cfg.branches) {
     const branches = DEFAULT_BRANCHES.map((b) => ({
       id: b.id,
       name: b.name,
@@ -53,77 +60,77 @@ function ensureSeeded() {
       adminPasswordHash: bcrypt.hashSync(b.adminPassword, 10),
       rates: { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] },
     }));
-    writeJson(CONFIG_PATH, { branches, ownerPasswordHash: bcrypt.hashSync(DEFAULT_OWNER_PASSWORD, 10) });
-    return;
+    await saveBranches(branches);
   }
-  // Backfill the owner account for configs saved before the owner role existed.
-  const cfg = getConfig();
   if (!cfg.ownerPasswordHash) {
-    cfg.ownerPasswordHash = bcrypt.hashSync(DEFAULT_OWNER_PASSWORD, 10);
-    saveConfig(cfg);
+    await setConfigValue("ownerPasswordHash", bcrypt.hashSync(DEFAULT_OWNER_PASSWORD, 10));
   }
 }
 
-function getConfig() {
-  return readJson(CONFIG_PATH, { branches: [] });
+async function getConfigRows() {
+  return sheetsClient.getRows("Config", CONFIG_HEADERS);
 }
 
-function saveConfig(cfg) {
-  writeJson(CONFIG_PATH, cfg);
+async function getConfig() {
+  const rows = await getConfigRows();
+  const cfg = {};
+  for (const r of rows) cfg[r.key] = r.value;
+  if (cfg.branches) cfg.branches = JSON.parse(cfg.branches);
+  return cfg;
 }
 
-function getBranches() {
-  return getConfig().branches.map((b) => ({ id: b.id, name: b.name }));
+async function setConfigValue(key, value) {
+  const rows = await getConfigRows();
+  const existing = rows.find((r) => r.key === key);
+  const strValue = typeof value === "string" ? value : JSON.stringify(value);
+  if (existing) {
+    await sheetsClient.updateRow("Config", CONFIG_HEADERS, existing.__row, { key, value: strValue });
+  } else {
+    await sheetsClient.appendRow("Config", CONFIG_HEADERS, { key, value: strValue });
+  }
 }
 
-function getBranchConfig(branchId) {
-  return getConfig().branches.find((b) => b.id === branchId) || null;
+async function saveBranches(branches) {
+  await setConfigValue("branches", JSON.stringify(branches));
 }
 
-function branchExists(branchId) {
-  return !!getBranchConfig(branchId);
+async function getBranches() {
+  const cfg = await getConfig();
+  return (cfg.branches || []).map((b) => ({ id: b.id, name: b.name }));
+}
+
+async function getBranchConfig(branchId) {
+  const cfg = await getConfig();
+  return (cfg.branches || []).find((b) => b.id === branchId) || null;
+}
+
+async function branchExists(branchId) {
+  return !!(await getBranchConfig(branchId));
 }
 
 // ---------- owner (super-admin over all branches) ----------
 
-function verifyOwnerPassword(password) {
-  const cfg = getConfig();
+async function verifyOwnerPassword(password) {
+  const cfg = await getConfig();
   if (!cfg.ownerPasswordHash || !password) return false;
   return bcrypt.compareSync(password, cfg.ownerPasswordHash);
 }
 
-function updateOwnerPassword(newPassword) {
-  const cfg = getConfig();
-  cfg.ownerPasswordHash = bcrypt.hashSync(newPassword, 10);
-  saveConfig(cfg);
+async function updateOwnerPassword(newPassword) {
+  await setConfigValue("ownerPasswordHash", bcrypt.hashSync(newPassword, 10));
 }
 
 // The single Gmail address allowed to sign in as owner via Google. Unset by
 // default — "Sign in with Google" stays disabled until the owner sets this
 // themselves (from the owner dashboard, after logging in with the password),
 // so there's no bootstrap gap where an unconfigured Google login could work.
-function getOwnerGoogleEmail() {
-  return getConfig().ownerGoogleEmail || null;
+async function getOwnerGoogleEmail() {
+  const cfg = await getConfig();
+  return cfg.ownerGoogleEmail || null;
 }
 
-function setOwnerGoogleEmail(email) {
-  const cfg = getConfig();
-  cfg.ownerGoogleEmail = email ? email.trim().toLowerCase() : null;
-  saveConfig(cfg);
-}
-
-// Google Sheets sync state (refresh token, spreadsheet id, sync bookkeeping).
-// Stored in the same gitignored config file as everything else sensitive
-// (password hashes, etc.) — never exposed through any API response.
-function getGoogleSheetsState() {
-  return getConfig().googleSheets || {};
-}
-
-function setGoogleSheetsState(patch) {
-  const cfg = getConfig();
-  cfg.googleSheets = { ...(cfg.googleSheets || {}), ...patch };
-  saveConfig(cfg);
-  return cfg.googleSheets;
+async function setOwnerGoogleEmail(email) {
+  await setConfigValue("ownerGoogleEmail", email ? email.trim().toLowerCase() : "");
 }
 
 function slugify(name) {
@@ -147,9 +154,10 @@ function generateBranchId(name, existingIds) {
   return id;
 }
 
-function createBranch({ name, staffPassword, adminPassword }) {
-  const cfg = getConfig();
-  const id = generateBranchId(name, cfg.branches.map((b) => b.id));
+async function createBranch({ name, staffPassword, adminPassword }) {
+  const cfg = await getConfig();
+  const branches = cfg.branches || [];
+  const id = generateBranchId(name, branches.map((b) => b.id));
   const branch = {
     id,
     name: name.trim(),
@@ -157,76 +165,90 @@ function createBranch({ name, staffPassword, adminPassword }) {
     adminPasswordHash: bcrypt.hashSync(adminPassword, 10),
     rates: { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] },
   };
-  cfg.branches.push(branch);
-  saveConfig(cfg);
+  branches.push(branch);
+  await saveBranches(branches);
   return { id: branch.id, name: branch.name };
 }
 
 // Owner-level update: unlike updateBranchStaffPassword/updateBranchAdminPassword
 // (self-service, used by a branch's own admin), this can also rename the store
 // and does not require knowing the current password.
-function updateBranchByOwner(id, { name, staffPassword, adminPassword }) {
-  const cfg = getConfig();
-  const branch = cfg.branches.find((b) => b.id === id);
+async function updateBranchByOwner(id, { name, staffPassword, adminPassword }) {
+  const cfg = await getConfig();
+  const branches = cfg.branches || [];
+  const branch = branches.find((b) => b.id === id);
   if (!branch) return null;
   if (typeof name === "string" && name.trim()) branch.name = name.trim();
   if (staffPassword) branch.staffPasswordHash = bcrypt.hashSync(staffPassword, 10);
   if (adminPassword) branch.adminPasswordHash = bcrypt.hashSync(adminPassword, 10);
-  saveConfig(cfg);
+  await saveBranches(branches);
   return { id: branch.id, name: branch.name };
 }
 
-function deleteBranch(id) {
-  const cfg = getConfig();
-  const before = cfg.branches.length;
-  cfg.branches = cfg.branches.filter((b) => b.id !== id);
-  saveConfig(cfg);
-  if (cfg.branches.length === before) return false;
-  const data = readAllData();
-  delete data.branches[id];
-  writeAllData(data);
+async function deleteAllRowsForBranch(tabName, headers, branchId) {
+  const rows = await sheetsClient.getRows(tabName, headers);
+  const toDelete = rows.filter((r) => r.branchId === branchId).sort((a, b) => b.__row - a.__row);
+  for (const r of toDelete) {
+    await sheetsClient.deleteRow(tabName, r.__row);
+  }
+}
+
+async function deleteBranch(id) {
+  const cfg = await getConfig();
+  const branches = cfg.branches || [];
+  const before = branches.length;
+  const next = branches.filter((b) => b.id !== id);
+  if (next.length === before) return false;
+  await saveBranches(next);
+  await deleteAllRowsForBranch("Employees", EMPLOYEES_HEADERS, id);
+  await deleteAllRowsForBranch("Drivers", DRIVERS_HEADERS, id);
+  await deleteAllRowsForBranch("Entries", ENTRIES_HEADERS, id);
+  await deleteAllRowsForBranch("DeliveryEntries", DELIVERY_ENTRIES_HEADERS, id);
   return true;
 }
 
-function verifyStaffPassword(branchId, password) {
-  const branch = getBranchConfig(branchId);
+async function verifyStaffPassword(branchId, password) {
+  const branch = await getBranchConfig(branchId);
   if (!branch || !password) return false;
   return bcrypt.compareSync(password, branch.staffPasswordHash);
 }
 
-function verifyAdminPassword(branchId, password) {
-  const branch = getBranchConfig(branchId);
+async function verifyAdminPassword(branchId, password) {
+  const branch = await getBranchConfig(branchId);
   if (!branch || !password) return false;
   return bcrypt.compareSync(password, branch.adminPasswordHash);
 }
 
-function updateBranchStaffPassword(branchId, newPassword) {
-  const cfg = getConfig();
-  const branch = cfg.branches.find((b) => b.id === branchId);
+async function updateBranchStaffPassword(branchId, newPassword) {
+  const cfg = await getConfig();
+  const branches = cfg.branches || [];
+  const branch = branches.find((b) => b.id === branchId);
   if (!branch) return false;
   branch.staffPasswordHash = bcrypt.hashSync(newPassword, 10);
-  saveConfig(cfg);
+  await saveBranches(branches);
   return true;
 }
 
-function updateBranchAdminPassword(branchId, newPassword) {
-  const cfg = getConfig();
-  const branch = cfg.branches.find((b) => b.id === branchId);
+async function updateBranchAdminPassword(branchId, newPassword) {
+  const cfg = await getConfig();
+  const branches = cfg.branches || [];
+  const branch = branches.find((b) => b.id === branchId);
   if (!branch) return false;
   branch.adminPasswordHash = bcrypt.hashSync(newPassword, 10);
-  saveConfig(cfg);
+  await saveBranches(branches);
   return true;
 }
 
-function getBranchRates(branchId) {
-  const branch = getBranchConfig(branchId);
+async function getBranchRates(branchId) {
+  const branch = await getBranchConfig(branchId);
   if (!branch) return null;
   return branch.rates || { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] };
 }
 
-function updateBranchRates(branchId, { driverHourlyRate, minimumWage, zoneRates }) {
-  const cfg = getConfig();
-  const branch = cfg.branches.find((b) => b.id === branchId);
+async function updateBranchRates(branchId, { driverHourlyRate, minimumWage, zoneRates }) {
+  const cfg = await getConfig();
+  const branches = cfg.branches || [];
+  const branch = branches.find((b) => b.id === branchId);
   if (!branch) return null;
   const current = branch.rates || { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] };
   const next = { ...current };
@@ -236,85 +258,57 @@ function updateBranchRates(branchId, { driverHourlyRate, minimumWage, zoneRates 
     next.zoneRates = zoneRates;
   }
   branch.rates = next;
-  saveConfig(cfg);
+  await saveBranches(branches);
   return next;
-}
-
-// ---------- per-branch app data (employees + entries) ----------
-
-function defaultData() {
-  return { branches: {} };
-}
-
-function defaultBranchData() {
-  return { employees: [], entries: [], drivers: [], deliveryEntries: [] };
-}
-
-function readAllData() {
-  return readJson(DATA_PATH, defaultData());
-}
-
-function writeAllData(data) {
-  writeJson(DATA_PATH, data);
-}
-
-function readBranchData(branchId) {
-  const data = readAllData();
-  const branch = data.branches[branchId] || {};
-  return { ...defaultBranchData(), ...branch };
-}
-
-function writeBranchData(branchId, branchData) {
-  const data = readAllData();
-  data.branches[branchId] = branchData;
-  writeAllData(data);
-  // Required lazily (not at module load) to avoid a circular require, since
-  // sheets.js reads branch data back out via exportAllDataForSync() below.
-  require("./sheets").markDirtyAll();
-}
-
-function newId() {
-  return crypto.randomUUID();
 }
 
 // ---------- employees ----------
 
-function listEmployees(branchId, { includeInactive = false } = {}) {
-  const data = readBranchData(branchId);
-  return data.employees
+async function listEmployees(branchId, { includeInactive = false } = {}) {
+  const rows = await sheetsClient.getRows("Employees", EMPLOYEES_HEADERS);
+  return rows
+    .filter((r) => r.branchId === branchId)
+    .map((r) => ({ id: r.id, name: r.name, active: sheetsClient.toBool(r.active) }))
     .filter((e) => includeInactive || e.active)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function addEmployee(branchId, name) {
-  const data = readBranchData(branchId);
-  const employee = { id: newId(), name: name.trim(), active: true };
-  data.employees.push(employee);
-  writeBranchData(branchId, data);
-  return employee;
+async function addEmployee(branchId, name) {
+  const employee = { id: newId(), branchId, name: name.trim(), active: "TRUE" };
+  await sheetsClient.appendRow("Employees", EMPLOYEES_HEADERS, employee);
+  return { id: employee.id, name: employee.name, active: true };
 }
 
-function updateEmployee(branchId, id, { name, active }) {
-  const data = readBranchData(branchId);
-  const employee = data.employees.find((e) => e.id === id);
-  if (!employee) return null;
-  if (typeof name === "string" && name.trim()) employee.name = name.trim();
-  if (typeof active === "boolean") employee.active = active;
-  writeBranchData(branchId, data);
-  return employee;
+async function findEmployeeRow(branchId, id) {
+  const rows = await sheetsClient.getRows("Employees", EMPLOYEES_HEADERS);
+  return rows.find((r) => r.branchId === branchId && r.id === id) || null;
 }
 
-function employeeHasEntries(branchId, id) {
-  const data = readBranchData(branchId);
-  return data.entries.some((entry) => entry.shifts.some((s) => s.employeeId === id));
+async function updateEmployee(branchId, id, { name, active }) {
+  const row = await findEmployeeRow(branchId, id);
+  if (!row) return null;
+  const next = {
+    id: row.id,
+    branchId: row.branchId,
+    name: typeof name === "string" && name.trim() ? name.trim() : row.name,
+    active: typeof active === "boolean" ? (active ? "TRUE" : "FALSE") : row.active,
+  };
+  await sheetsClient.updateRow("Employees", EMPLOYEES_HEADERS, row.__row, next);
+  return { id: next.id, name: next.name, active: sheetsClient.toBool(next.active) };
 }
 
-function deleteEmployee(branchId, id) {
-  const data = readBranchData(branchId);
-  const before = data.employees.length;
-  data.employees = data.employees.filter((e) => e.id !== id);
-  writeBranchData(branchId, data);
-  return data.employees.length < before;
+async function employeeHasEntries(branchId, id) {
+  const rows = await sheetsClient.getRows("Entries", ENTRIES_HEADERS);
+  return rows
+    .filter((r) => r.branchId === branchId)
+    .some((r) => JSON.parse(r.shiftsJson || "[]").some((s) => s.employeeId === id));
+}
+
+async function deleteEmployee(branchId, id) {
+  const row = await findEmployeeRow(branchId, id);
+  if (!row) return false;
+  await sheetsClient.deleteRow("Employees", row.__row);
+  return true;
 }
 
 // ---------- entries ----------
@@ -336,18 +330,39 @@ function withShares(entry) {
   return { ...entry, shares: computeShares(entry) };
 }
 
-function listEntries(branchId, { from, to } = {}) {
-  const data = readBranchData(branchId);
-  return data.entries
-    .filter((e) => (!from || e.date >= from) && (!to || e.date <= to))
-    .sort((a, b) => (a.date < b.date ? 1 : -1))
-    .map(withShares);
+function parseEntryRow(r) {
+  return {
+    id: r.id,
+    branchId: r.branchId,
+    date: r.date,
+    cashTips: Number(r.cashTips) || 0,
+    creditTips: Number(r.creditTips) || 0,
+    shifts: JSON.parse(r.shiftsJson || "[]"),
+    __row: r.__row,
+  };
 }
 
-function getEntry(branchId, id) {
-  const data = readBranchData(branchId);
-  const entry = data.entries.find((e) => e.id === id);
-  return entry ? withShares(entry) : null;
+async function listEntries(branchId, { from, to } = {}) {
+  const rows = await sheetsClient.getRows("Entries", ENTRIES_HEADERS);
+  return rows
+    .filter((r) => r.branchId === branchId)
+    .map(parseEntryRow)
+    .filter((e) => (!from || e.date >= from) && (!to || e.date <= to))
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .map(({ __row, branchId: _b, ...e }) => withShares(e));
+}
+
+async function findEntryRow(branchId, id) {
+  const rows = await sheetsClient.getRows("Entries", ENTRIES_HEADERS);
+  const found = rows.find((r) => r.branchId === branchId && r.id === id);
+  return found ? parseEntryRow(found) : null;
+}
+
+async function getEntry(branchId, id) {
+  const found = await findEntryRow(branchId, id);
+  if (!found) return null;
+  const { __row, branchId: _b, ...rest } = found;
+  return withShares(rest);
 }
 
 // `validEmployeeIds` scopes accepted shifts to this branch's own employee
@@ -374,71 +389,91 @@ function validateEntryInput(input, validEmployeeIds) {
   return { date: input.date, cashTips, creditTips, shifts: cleanShifts };
 }
 
-function addEntry(branchId, input) {
-  const data = readBranchData(branchId);
-  const clean = validateEntryInput(input, new Set(data.employees.map((e) => e.id)));
-  const entry = { id: newId(), ...clean };
-  data.entries.push(entry);
-  writeBranchData(branchId, data);
-  return withShares(entry);
+async function addEntry(branchId, input) {
+  const employees = await listEmployees(branchId, { includeInactive: true });
+  const clean = validateEntryInput(input, new Set(employees.map((e) => e.id)));
+  const id = newId();
+  await sheetsClient.appendRow("Entries", ENTRIES_HEADERS, {
+    id,
+    branchId,
+    date: clean.date,
+    cashTips: clean.cashTips,
+    creditTips: clean.creditTips,
+    shiftsJson: JSON.stringify(clean.shifts),
+  });
+  return withShares({ id, date: clean.date, cashTips: clean.cashTips, creditTips: clean.creditTips, shifts: clean.shifts });
 }
 
-function updateEntry(branchId, id, input) {
-  const data = readBranchData(branchId);
-  const clean = validateEntryInput(input, new Set(data.employees.map((e) => e.id)));
-  const entry = data.entries.find((e) => e.id === id);
-  if (!entry) return null;
-  Object.assign(entry, clean);
-  writeBranchData(branchId, data);
-  return withShares(entry);
+async function updateEntry(branchId, id, input) {
+  const existing = await findEntryRow(branchId, id);
+  if (!existing) return null;
+  const employees = await listEmployees(branchId, { includeInactive: true });
+  const clean = validateEntryInput(input, new Set(employees.map((e) => e.id)));
+  await sheetsClient.updateRow("Entries", ENTRIES_HEADERS, existing.__row, {
+    id,
+    branchId,
+    date: clean.date,
+    cashTips: clean.cashTips,
+    creditTips: clean.creditTips,
+    shiftsJson: JSON.stringify(clean.shifts),
+  });
+  return withShares({ id, date: clean.date, cashTips: clean.cashTips, creditTips: clean.creditTips, shifts: clean.shifts });
 }
 
-function deleteEntry(branchId, id) {
-  const data = readBranchData(branchId);
-  const before = data.entries.length;
-  data.entries = data.entries.filter((e) => e.id !== id);
-  writeBranchData(branchId, data);
-  return data.entries.length < before;
+async function deleteEntry(branchId, id) {
+  const existing = await findEntryRow(branchId, id);
+  if (!existing) return false;
+  await sheetsClient.deleteRow("Entries", existing.__row);
+  return true;
 }
 
 // ---------- drivers ----------
 
-function listDrivers(branchId, { includeInactive = false } = {}) {
-  const data = readBranchData(branchId);
-  return data.drivers
+async function listDrivers(branchId, { includeInactive = false } = {}) {
+  const rows = await sheetsClient.getRows("Drivers", DRIVERS_HEADERS);
+  return rows
+    .filter((r) => r.branchId === branchId)
+    .map((r) => ({ id: r.id, name: r.name, active: sheetsClient.toBool(r.active) }))
     .filter((d) => includeInactive || d.active)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function addDriver(branchId, name) {
-  const data = readBranchData(branchId);
-  const driver = { id: newId(), name: name.trim(), active: true };
-  data.drivers.push(driver);
-  writeBranchData(branchId, data);
-  return driver;
+async function addDriver(branchId, name) {
+  const driver = { id: newId(), branchId, name: name.trim(), active: "TRUE" };
+  await sheetsClient.appendRow("Drivers", DRIVERS_HEADERS, driver);
+  return { id: driver.id, name: driver.name, active: true };
 }
 
-function updateDriver(branchId, id, { name, active }) {
-  const data = readBranchData(branchId);
-  const driver = data.drivers.find((d) => d.id === id);
-  if (!driver) return null;
-  if (typeof name === "string" && name.trim()) driver.name = name.trim();
-  if (typeof active === "boolean") driver.active = active;
-  writeBranchData(branchId, data);
-  return driver;
+async function findDriverRow(branchId, id) {
+  const rows = await sheetsClient.getRows("Drivers", DRIVERS_HEADERS);
+  return rows.find((r) => r.branchId === branchId && r.id === id) || null;
 }
 
-function driverHasEntries(branchId, id) {
-  const data = readBranchData(branchId);
-  return data.deliveryEntries.some((entry) => entry.drivers.some((s) => s.driverId === id));
+async function updateDriver(branchId, id, { name, active }) {
+  const row = await findDriverRow(branchId, id);
+  if (!row) return null;
+  const next = {
+    id: row.id,
+    branchId: row.branchId,
+    name: typeof name === "string" && name.trim() ? name.trim() : row.name,
+    active: typeof active === "boolean" ? (active ? "TRUE" : "FALSE") : row.active,
+  };
+  await sheetsClient.updateRow("Drivers", DRIVERS_HEADERS, row.__row, next);
+  return { id: next.id, name: next.name, active: sheetsClient.toBool(next.active) };
 }
 
-function deleteDriver(branchId, id) {
-  const data = readBranchData(branchId);
-  const before = data.drivers.length;
-  data.drivers = data.drivers.filter((d) => d.id !== id);
-  writeBranchData(branchId, data);
-  return data.drivers.length < before;
+async function driverHasEntries(branchId, id) {
+  const rows = await sheetsClient.getRows("DeliveryEntries", DELIVERY_ENTRIES_HEADERS);
+  return rows
+    .filter((r) => r.branchId === branchId)
+    .some((r) => JSON.parse(r.driversJson || "[]").some((d) => d.driverId === id));
+}
+
+async function deleteDriver(branchId, id) {
+  const row = await findDriverRow(branchId, id);
+  if (!row) return false;
+  await sheetsClient.deleteRow("Drivers", row.__row);
+  return true;
 }
 
 // ---------- delivery entries ----------
@@ -484,20 +519,40 @@ function withDeliveryShares(entry, rates) {
   return { ...entry, shares: entry.drivers.map((d) => computeDeliveryPay(d, rates, isSolo)) };
 }
 
-function listDeliveryEntries(branchId, { from, to } = {}) {
-  const rates = getBranchRates(branchId);
-  const data = readBranchData(branchId);
-  return data.deliveryEntries
-    .filter((e) => (!from || e.date >= from) && (!to || e.date <= to))
-    .sort((a, b) => (a.date < b.date ? 1 : -1))
-    .map((e) => withDeliveryShares(e, rates));
+function parseDeliveryEntryRow(r) {
+  return {
+    id: r.id,
+    branchId: r.branchId,
+    date: r.date,
+    driverCount: Number(r.driverCount) || 0,
+    drivers: JSON.parse(r.driversJson || "[]"),
+    __row: r.__row,
+  };
 }
 
-function getDeliveryEntry(branchId, id) {
-  const rates = getBranchRates(branchId);
-  const data = readBranchData(branchId);
-  const entry = data.deliveryEntries.find((e) => e.id === id);
-  return entry ? withDeliveryShares(entry, rates) : null;
+async function listDeliveryEntries(branchId, { from, to } = {}) {
+  const rates = await getBranchRates(branchId);
+  const rows = await sheetsClient.getRows("DeliveryEntries", DELIVERY_ENTRIES_HEADERS);
+  return rows
+    .filter((r) => r.branchId === branchId)
+    .map(parseDeliveryEntryRow)
+    .filter((e) => (!from || e.date >= from) && (!to || e.date <= to))
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .map(({ __row, branchId: _b, ...e }) => withDeliveryShares(e, rates));
+}
+
+async function findDeliveryEntryRow(branchId, id) {
+  const rows = await sheetsClient.getRows("DeliveryEntries", DELIVERY_ENTRIES_HEADERS);
+  const found = rows.find((r) => r.branchId === branchId && r.id === id);
+  return found ? parseDeliveryEntryRow(found) : null;
+}
+
+async function getDeliveryEntry(branchId, id) {
+  const found = await findDeliveryEntryRow(branchId, id);
+  if (!found) return null;
+  const rates = await getBranchRates(branchId);
+  const { __row, branchId: _b, ...rest } = found;
+  return withDeliveryShares(rest, rates);
 }
 
 // `validDriverIds` scopes accepted rows to this branch's own driver list
@@ -541,31 +596,42 @@ function validateDeliveryEntryInput(input, validDriverIds) {
   return { date: input.date, driverCount, drivers: cleanDrivers };
 }
 
-function addDeliveryEntry(branchId, input) {
-  const data = readBranchData(branchId);
-  const clean = validateDeliveryEntryInput(input, new Set(data.drivers.map((d) => d.id)));
-  const entry = { id: newId(), ...clean };
-  data.deliveryEntries.push(entry);
-  writeBranchData(branchId, data);
-  return withDeliveryShares(entry, getBranchRates(branchId));
+async function addDeliveryEntry(branchId, input) {
+  const drivers = await listDrivers(branchId, { includeInactive: true });
+  const clean = validateDeliveryEntryInput(input, new Set(drivers.map((d) => d.id)));
+  const id = newId();
+  await sheetsClient.appendRow("DeliveryEntries", DELIVERY_ENTRIES_HEADERS, {
+    id,
+    branchId,
+    date: clean.date,
+    driverCount: clean.driverCount,
+    driversJson: JSON.stringify(clean.drivers),
+  });
+  const rates = await getBranchRates(branchId);
+  return withDeliveryShares({ id, date: clean.date, driverCount: clean.driverCount, drivers: clean.drivers }, rates);
 }
 
-function updateDeliveryEntry(branchId, id, input) {
-  const data = readBranchData(branchId);
-  const clean = validateDeliveryEntryInput(input, new Set(data.drivers.map((d) => d.id)));
-  const entry = data.deliveryEntries.find((e) => e.id === id);
-  if (!entry) return null;
-  Object.assign(entry, clean);
-  writeBranchData(branchId, data);
-  return withDeliveryShares(entry, getBranchRates(branchId));
+async function updateDeliveryEntry(branchId, id, input) {
+  const existing = await findDeliveryEntryRow(branchId, id);
+  if (!existing) return null;
+  const drivers = await listDrivers(branchId, { includeInactive: true });
+  const clean = validateDeliveryEntryInput(input, new Set(drivers.map((d) => d.id)));
+  await sheetsClient.updateRow("DeliveryEntries", DELIVERY_ENTRIES_HEADERS, existing.__row, {
+    id,
+    branchId,
+    date: clean.date,
+    driverCount: clean.driverCount,
+    driversJson: JSON.stringify(clean.drivers),
+  });
+  const rates = await getBranchRates(branchId);
+  return withDeliveryShares({ id, date: clean.date, driverCount: clean.driverCount, drivers: clean.drivers }, rates);
 }
 
-function deleteDeliveryEntry(branchId, id) {
-  const data = readBranchData(branchId);
-  const before = data.deliveryEntries.length;
-  data.deliveryEntries = data.deliveryEntries.filter((e) => e.id !== id);
-  writeBranchData(branchId, data);
-  return data.deliveryEntries.length < before;
+async function deleteDeliveryEntry(branchId, id) {
+  const existing = await findDeliveryEntryRow(branchId, id);
+  if (!existing) return false;
+  await sheetsClient.deleteRow("DeliveryEntries", existing.__row);
+  return true;
 }
 
 // ---------- calendar-date helpers (UTC-anchored so there is no timezone drift) ----------
@@ -678,12 +744,12 @@ function resolveRange(mode, anchor) {
 
 // ---------- history dashboard (weekly / monthly, per-employee, expandable) ----------
 
-function buildHistory({ branchId, mode, anchor }) {
+async function buildHistory({ branchId, mode, anchor }) {
   const { mode: safeMode, range, prevAnchor, nextAnchor, label } = resolveRange(mode, anchor);
 
-  const entries = listEntries(branchId, { from: range.from, to: range.to });
-  const data = readBranchData(branchId);
-  const employeesById = new Map(data.employees.map((e) => [e.id, e]));
+  const entries = await listEntries(branchId, { from: range.from, to: range.to });
+  const employees = await listEmployees(branchId, { includeInactive: true });
+  const employeesById = new Map(employees.map((e) => [e.id, e]));
 
   const byEmployee = new Map();
   for (const entry of entries) {
@@ -747,12 +813,12 @@ function buildHistory({ branchId, mode, anchor }) {
 
 // ---------- delivery history dashboard (weekly / monthly, per-driver, expandable) ----------
 
-function buildDeliveryHistory({ branchId, mode, anchor }) {
+async function buildDeliveryHistory({ branchId, mode, anchor }) {
   const { mode: safeMode, range, prevAnchor, nextAnchor, label } = resolveRange(mode, anchor);
 
-  const entries = listDeliveryEntries(branchId, { from: range.from, to: range.to });
-  const data = readBranchData(branchId);
-  const driversById = new Map(data.drivers.map((d) => [d.id, d]));
+  const entries = await listDeliveryEntries(branchId, { from: range.from, to: range.to });
+  const drivers = await listDrivers(branchId, { includeInactive: true });
+  const driversById = new Map(drivers.map((d) => [d.id, d]));
 
   const byDriver = new Map();
   for (const entry of entries) {
@@ -840,24 +906,24 @@ function buildDeliveryHistory({ branchId, mode, anchor }) {
   };
 }
 
-// ---------- flattened cross-branch dataset ----------
-// One row per employee-shift / driver-day, already computed (shares, pay) —
-// used both for the owner's analytics dashboard and to mirror business data
-// into the Google Sheet (backend/lib/sheets.js), so both stay in lockstep.
-function getAnalyticsData() {
-  const branches = getBranches();
+// ---------- flattened cross-branch dataset (owner analytics dashboard) ----------
+
+async function getAnalyticsData() {
+  const branches = await getBranches();
   const employees = [];
   const drivers = [];
   const tipRows = [];
   const deliveryRows = [];
   for (const b of branches) {
-    for (const e of listEmployees(b.id, { includeInactive: true })) {
-      employees.push({ id: e.id, branchId: b.id, name: e.name, active: e.active });
-    }
-    for (const d of listDrivers(b.id, { includeInactive: true })) {
-      drivers.push({ id: d.id, branchId: b.id, name: d.name, active: d.active });
-    }
-    for (const entry of listEntries(b.id)) {
+    const [emps, drvs, entries, deliveryEntries] = await Promise.all([
+      listEmployees(b.id, { includeInactive: true }),
+      listDrivers(b.id, { includeInactive: true }),
+      listEntries(b.id),
+      listDeliveryEntries(b.id),
+    ]);
+    for (const e of emps) employees.push({ id: e.id, branchId: b.id, name: e.name, active: e.active });
+    for (const d of drvs) drivers.push({ id: d.id, branchId: b.id, name: d.name, active: d.active });
+    for (const entry of entries) {
       for (const share of entry.shares) {
         tipRows.push({
           entryId: entry.id,
@@ -870,7 +936,7 @@ function getAnalyticsData() {
         });
       }
     }
-    for (const entry of listDeliveryEntries(b.id)) {
+    for (const entry of deliveryEntries) {
       for (const share of entry.shares) {
         deliveryRows.push({
           entryId: entry.id,
@@ -902,8 +968,6 @@ module.exports = {
   updateOwnerPassword,
   getOwnerGoogleEmail,
   setOwnerGoogleEmail,
-  getGoogleSheetsState,
-  setGoogleSheetsState,
   getAnalyticsData,
   createBranch,
   updateBranchByOwner,

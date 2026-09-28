@@ -8,7 +8,7 @@
 - Branch-scoped staff/admin roles; same-day exception for staff completing a Delivery entry.
 - Owner role: store management, cross-branch Analytics, "open a store" impersonation.
 - Login page and Owner dashboard visual redesign (Pinterest/CollectUI references).
-- Optional Owner "Sign in with Google" + Google Sheet sync of business data (see TRD.md §7).
+- Optional Owner "Sign in with Google" identity check.
 - Repo restructured into `frontend/`/`backend/`/`.github/workflows/` for external contributors.
 - CI: syntax check + require-smoke-test on every push/PR.
 
@@ -30,6 +30,13 @@
 - [x] Cookie notice (informational — the app sets exactly one strictly-necessary session cookie,
       so there's nothing to gate behind opt-in consent; see `frontend/cookie-policy.html`).
 - [x] This documentation set (PRD/TRD/App Flow/UI-UX brief/Backend schema/Implementation plan).
+- [x] Checked against a second, user-supplied risk list (CORS, unbounded API consumption, IDOR,
+      dependency hallucination, exposed secrets, 404 handling) — see `SECURITY_REVIEW.md` "Round 2".
+- [x] **Storage migrated from local JSON files to Google Sheets as the sole datastore**, and
+      sessions migrated from an in-memory store to a stateless signed cookie — the two changes that
+      make this app deployable to Vercel (or any other host with no persistent local disk). See
+      `TRD.md` §7 and §8.
+- [x] Added Vercel deployment config (`vercel.json`, `api/index.js`) — see README.md "Deployment".
 
 ## Phase 2 — Near-term (not yet done)
 

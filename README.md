@@ -23,22 +23,30 @@ security audit and fixes) cover this project end to end.
 
 ## Run it
 
+This app has no local database — every branch/owner credential and every
+piece of business data lives in a Google Sheet, so it needs a few
+environment variables before it can do anything, including a first login.
+
 ```bash
 npm install
+cp .env.example .env   # then follow the instructions inside it
 npm start
 ```
 
-Then open http://localhost:3000 in your browser.
+Then open http://localhost:3000 in your browser. The Sheet's tabs and
+default branch/owner passwords are created automatically the first time the
+server runs against a blank Sheet.
 
 ## Project structure
 
 ```
 tips-tracker/
-├── backend/               Express server and all data/business logic
-│   ├── server.js          Routes, sessions, auth middleware
+├── api/index.js           Vercel's serverless entrypoint — just re-exports backend/server.js
+├── vercel.json             Routes every request to api/index.js
+├── backend/
+│   ├── server.js          Routes, stateless signed-cookie sessions, auth middleware
 │   ├── lib/store.js       Data model, validation, pay/tip math, history queries
-│   ├── lib/sheets.js      Background sync of business data into the owner's Google Sheet
-│   └── data/              Runtime JSON storage (gitignored, created on first run)
+│   └── lib/sheetsClient.js Low-level Google Sheets read/write (the only "database" this app has)
 ├── frontend/               Static site served by the backend — plain HTML/CSS/JS, no build step
 │   ├── *.html              One page per screen (login, dashboard, entry, history, settings, ...)
 │   ├── privacy-policy.html, terms.html, cookie-policy.html   Legal pages (templates — see below)
@@ -48,10 +56,12 @@ tips-tracker/
 └── .github/workflows/      CI (syntax-checks the backend on every push/PR)
 ```
 
-Everything runs from one Express process (`backend/server.js`) that both
-serves the `frontend/` files and answers the `/api/*` routes. There's no
-separate frontend build/deploy — editing an HTML file under `frontend/`
-takes effect on the next page load.
+Everything runs from one Express app (`backend/server.js`, exported as a
+module) that both serves the `frontend/` files and answers the `/api/*`
+routes — run directly with `node`/`npm start` locally, or imported by
+`api/index.js` as a single Vercel serverless function in production. There's
+no separate frontend build/deploy — editing an HTML file under `frontend/`
+takes effect on the next page load either way.
 
 - **Want to change how something looks or behaves in the browser?** Edit the
   relevant file in `frontend/`.
@@ -96,67 +106,41 @@ Dashboard, the owner can:
   computed client-side from `/api/owner/analytics`, so switching filters or
   chart type is instant.
 
-The owner password is stored the same way as everything else — hashed in
-`backend/data/config.json`, seeded automatically (including for
-already-existing installs, which get the owner account backfilled on next
-start).
+The owner password is stored the same way as everything else — hashed, in
+the Sheet's `Config` tab — seeded automatically the first time the server
+runs against a blank Sheet.
 
-### Owner sign-in with Google, and Google Sheet sync (optional)
+### Where everything is stored: one Google Sheet
+
+There is no local database of any kind. Every branch/admin/owner password
+hash, every pay rate, and every employee/driver/tip-entry/delivery-entry
+lives in the single Google Sheet identified by `GOOGLE_SHEET_ID` — read and
+written directly on every request. See `.env.example` for the one-time setup
+(enabling the Sheets API, creating an OAuth client, and minting a refresh
+token) and [docs/BACKEND_SCHEMA.md](docs/BACKEND_SCHEMA.md) for the exact tab
+layout. The app creates every tab and its header row automatically the first
+time it runs against a Sheet that doesn't have them yet — you never need to
+set anything up inside the Sheet by hand.
+
+This is also what makes the app deployable to Vercel (see **Deployment**
+below): there's no writable local disk to depend on, since a serverless
+function has none.
+
+### Owner sign-in with Google (optional, identity only)
 
 As an alternative to the owner password, the owner can sign in with a real
-Gmail account instead. This is entirely opt-in and off by default — the
-password keeps working either way. Signing in with Google also connects a
-**Google Sheet**, created automatically under that same Gmail account, which
-is kept as a live mirror of the business data — employees, drivers, tip
-entries, and delivery entries, across every branch.
+Gmail account instead — this is a separate, opt-in feature from the Sheets
+connection above and only proves *who* the owner is; it doesn't affect where
+data is stored. The password keeps working either way.
 
 To turn it on:
 
-1. In [Google Cloud Console](https://console.cloud.google.com/), enable the
-   **Google Sheets API** for your project, and on the OAuth consent screen's
-   **Data Access** page add the `.../auth/spreadsheets` scope. While the app
-   is in "Testing" publishing status, also add the owner's Gmail address
-   under **Audience → Test users** — Google only allows listed test users to
-   grant a sensitive scope like this to an unverified app.
-2. Copy `.env.example` to `.env` and follow the instructions inside it to
-   create a free Google OAuth client, then fill in `GOOGLE_CLIENT_ID` and
-   `GOOGLE_CLIENT_SECRET`. Restart the server after saving `.env`.
-3. Log in as Owner with the password, go to **Settings**, and enter the
+1. Log in as Owner with the password, go to **Settings**, and enter the
    exact Gmail address that should be allowed to sign in — only that one
    address will ever be accepted.
-4. A "Continue with Google" button now appears on the login page whenever
-   "Owner" is selected. Signing in with it the first time creates a Google
-   Sheet titled "Tips Tracker Data" under that account and starts syncing.
-
-**How the sync works:** the local files in `backend/data/` remain the fast,
-always-available copy that every request reads and writes — nothing waits on
-a network call. Every change (a new tip entry, an added employee, etc.)
-marks the affected Sheet tabs as needing a refresh, and a background job
-pushes the current contents up to the Sheet within moments, retrying
-automatically if the connection or Google's API is briefly unreachable. The
-Sheet is meant as the durable, off-machine copy of the business data; the
-local files are the safety net, not the other way around.
-
-**What's deliberately excluded:** branch/admin/owner passwords and pay-rate
-settings are never written to the Sheet — they stay local-only, both because
-they're sensitive and because logins still need to work even if Google is
-briefly unreachable. Google is otherwise never used as a database beyond
-this — the "Sign in with Google" button itself is purely an alternate way to
-prove who the owner is.
-
-**Sheet layout:** one spreadsheet ("Tips Tracker Data") with four tabs —
-`Employees`, `Drivers`, `Entries`, `DeliveryEntries` — shared across every
-branch, with a `branchId`/`branchName` column on each row to tell them apart.
-`Entries` has one row per employee per tip entry (with that employee's hours
-and their share of cash/credit tips already split out); `DeliveryEntries` has
-one row per driver per delivery entry (hours, each zone's delivery count,
-base/delivery/tip pay, and the final total). Every value lives in its own
-column — nothing is packed into a JSON blob — so the sheet is ready to pivot,
-filter, or chart directly in Google Sheets.
-
-Manage the connection any time from the owner dashboard's **Settings** page:
-open the Sheet directly, force an immediate sync, or disconnect (existing
-data in the Sheet is left as-is; new changes stop syncing until reconnected).
+2. A "Continue with Google" button now appears on the login page whenever
+   "Owner" is selected, using the same `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`
+   already configured for the Sheets connection.
 
 - On the login page, pick a branch and enter its **staff password** to open
   that branch's dashboard, where you choose Tip Sheet or Delivery. Each
@@ -166,11 +150,6 @@ data in the Sheet is left as-is; new changes stop syncing until reconnected).
   and enter that branch's **admin password** to unlock Employees, Drivers,
   and Settings (manage rosters, change either password, edit delivery
   rates). The same admin password unlocks both sections.
-
-Passwords are stored hashed (never in plain text) in `backend/data/config.json`,
-generated automatically the first time the server runs. Employees, drivers,
-tip entries and delivery entries are stored per-branch in `backend/data/data.json`.
-Neither file is committed to git.
 
 ## How tip splitting works
 
@@ -259,21 +238,32 @@ or deleting it requires the branch admin password.
 
 ## Resetting
 
-Delete `backend/data/config.json` to regenerate the branch passwords and
-default rates from `backend/lib/store.js` (does not touch history). Delete
-`backend/data/data.json` to wipe all employees, drivers, and entries for
-every branch.
+Clear the `Config` tab's rows (keep the header) in the Google Sheet to
+regenerate the branch passwords and default rates from `backend/lib/store.js`
+on the next request (does not touch history). Clear the `Employees`,
+`Drivers`, `Entries`, and `DeliveryEntries` tabs' rows (keep each header) to
+wipe all business data for every branch.
 
 ## Deployment
 
-This app stores its data in local JSON files and keeps sessions in memory,
-so it needs a host that runs a persistent Node process with a writable
-disk (e.g. a VPS, Render, Railway, Fly.io — or simply your own machine via
-`npm start` plus a tunnel). It is **not** compatible with Vercel or other
-serverless platforms as-is: their filesystem is read-only/ephemeral, so
-every save (a new entry, a password change, a new employee) would fail or
-silently disappear. Moving to serverless would require replacing
-`backend/data/*.json` with a real hosted database first.
+The app has no local storage and no in-memory session store (sessions are a
+signed cookie, verified statelessly on every request — see
+[docs/TRD.md](docs/TRD.md) §8), so it runs equally well as a normal
+long-running Node process (a VPS, Render, Railway, Fly.io, or your own
+machine via `npm start` plus a tunnel) **or** as a Vercel serverless
+deployment:
+
+1. Push this repo to GitHub (already done if you're reading this from there).
+2. In Vercel, "Add New Project" → import the GitHub repo. Vercel detects
+   `vercel.json`/`api/index.js` automatically — no build command needed.
+3. Add every variable from `.env.example` under the project's **Environment
+   Variables** settings (use your production `GOOGLE_REDIRECT_URI`, e.g.
+   `https://your-project.vercel.app/auth/google/callback`, and add that exact
+   URL to the OAuth client's Authorized redirect URIs in Google Cloud
+   Console too).
+4. Deploy. Every subsequent push to the connected branch redeploys
+   automatically — that's Vercel's standard GitHub integration, no extra
+   CI/CD setup needed beyond what's already in `.github/workflows/ci.yml`.
 
 ## Legal pages
 
