@@ -350,7 +350,11 @@ function getEntry(branchId, id) {
   return entry ? withShares(entry) : null;
 }
 
-function validateEntryInput(input) {
+// `validEmployeeIds` scopes accepted shifts to this branch's own employee
+// list (active or inactive — an inactive one can still appear in an entry
+// being edited) so an entry can never end up referencing another branch's
+// employee, whether by a malicious request or a stale/bogus ID.
+function validateEntryInput(input, validEmployeeIds) {
   if (!input.date || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
     throw new Error("A valid date is required.");
   }
@@ -360,7 +364,7 @@ function validateEntryInput(input) {
   if (!Number.isFinite(creditTips) || creditTips < 0) throw new Error("Credit tips must be a non-negative number.");
   const shifts = Array.isArray(input.shifts) ? input.shifts : [];
   const cleanShifts = shifts
-    .filter((s) => s && s.employeeId)
+    .filter((s) => s && s.employeeId && validEmployeeIds.has(s.employeeId))
     .map((s) => {
       const hours = Number(s.hours);
       if (!Number.isFinite(hours) || hours <= 0) throw new Error("Each employee's hours must be a positive number.");
@@ -371,8 +375,8 @@ function validateEntryInput(input) {
 }
 
 function addEntry(branchId, input) {
-  const clean = validateEntryInput(input);
   const data = readBranchData(branchId);
+  const clean = validateEntryInput(input, new Set(data.employees.map((e) => e.id)));
   const entry = { id: newId(), ...clean };
   data.entries.push(entry);
   writeBranchData(branchId, data);
@@ -380,8 +384,8 @@ function addEntry(branchId, input) {
 }
 
 function updateEntry(branchId, id, input) {
-  const clean = validateEntryInput(input);
   const data = readBranchData(branchId);
+  const clean = validateEntryInput(input, new Set(data.employees.map((e) => e.id)));
   const entry = data.entries.find((e) => e.id === id);
   if (!entry) return null;
   Object.assign(entry, clean);
@@ -496,7 +500,10 @@ function getDeliveryEntry(branchId, id) {
   return entry ? withDeliveryShares(entry, rates) : null;
 }
 
-function validateDeliveryEntryInput(input) {
+// `validDriverIds` scopes accepted rows to this branch's own driver list
+// (active or inactive) so a delivery entry can never end up referencing
+// another branch's driver.
+function validateDeliveryEntryInput(input, validDriverIds) {
   if (!input.date || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
     throw new Error("A valid date is required.");
   }
@@ -510,7 +517,7 @@ function validateDeliveryEntryInput(input) {
     // A driver row that hasn't been filled in yet (no driver picked, or no
     // hours yet — e.g. they're still out on shift) is skipped rather than
     // rejected, so each driver can be saved independently as they finish up.
-    if (!d || !d.driverId) continue;
+    if (!d || !d.driverId || !validDriverIds.has(d.driverId)) continue;
     const hours = Number(d.hours);
     if (!Number.isFinite(hours) || hours <= 0) continue;
     const rawCounts = Array.isArray(d.zoneCounts) ? d.zoneCounts : [0, 0, 0, 0];
@@ -535,8 +542,8 @@ function validateDeliveryEntryInput(input) {
 }
 
 function addDeliveryEntry(branchId, input) {
-  const clean = validateDeliveryEntryInput(input);
   const data = readBranchData(branchId);
+  const clean = validateDeliveryEntryInput(input, new Set(data.drivers.map((d) => d.id)));
   const entry = { id: newId(), ...clean };
   data.deliveryEntries.push(entry);
   writeBranchData(branchId, data);
@@ -544,8 +551,8 @@ function addDeliveryEntry(branchId, input) {
 }
 
 function updateDeliveryEntry(branchId, id, input) {
-  const clean = validateDeliveryEntryInput(input);
   const data = readBranchData(branchId);
+  const clean = validateDeliveryEntryInput(input, new Set(data.drivers.map((d) => d.id)));
   const entry = data.deliveryEntries.find((e) => e.id === id);
   if (!entry) return null;
   Object.assign(entry, clean);

@@ -104,6 +104,16 @@ client-side, `frontend/owner-dashboard.html: isoWeekNumber` — so labels match 
 - `express.json({ limit: "100kb" })` — bounds request body size.
 - Password minimum raised from 4 to 6 characters, enforced both client- and server-side.
 - A catch-all error handler returns a generic message and never leaks a stack trace to the client.
+- `cors({ origin: false })` — explicit, auditable statement that no cross-origin caller is allowed
+  (matches the app's actual same-origin architecture).
+- Two layers of `express-rate-limit`: 20 req/15min/IP on password-checking routes specifically,
+  300 req/15min/IP on all of `/api` and `/auth` generally (cost/DoS bound).
+- `Permissions-Policy` denies geolocation/camera/microphone/payment/USB — unused by this app.
+- A custom 404: JSON for `/api`/`/auth`, a styled page for everything else.
+- `validateEntryInput`/`validateDeliveryEntryInput` only accept an `employeeId`/`driverId` that
+  belongs to the acting branch, closing a cross-branch reference gap (see `SECURITY_REVIEW.md` #11).
+
+Full findings and rationale: `SECURITY_REVIEW.md`.
 
 ## 9. Testing / CI
 

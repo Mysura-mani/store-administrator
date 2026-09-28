@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
 const helmet = require("helmet");
+const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const { OAuth2Client } = require("google-auth-library");
 const store = require("./lib/store");
@@ -59,6 +60,18 @@ app.use(
   })
 );
 
+// Not set by helmet in this version — restricts browser features this app
+// never uses, so an XSS that slipped through couldn't invoke them either.
+app.use((req, res, next) => {
+  res.setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=(), payment=(), usb=()");
+  next();
+});
+
+// The frontend and API are always served from this same origin — there is
+// no legitimate cross-origin caller, so CORS is explicitly disabled (rather
+// than just left unconfigured) to make that a deliberate, auditable choice.
+app.use(cors({ origin: false }));
+
 // Blocks brute-forcing any password (branch staff/admin, owner) by capping
 // attempts per IP. Applied only to routes that check a password.
 const authLimiter = rateLimit({
@@ -68,6 +81,18 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many attempts. Please wait a few minutes and try again." },
 });
+
+// A generous blanket cap on every API/auth request per IP, independent of
+// the stricter authLimiter above — bounds worst-case request volume (cost
+// and load) from a single source without affecting normal use.
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please slow down." },
+});
+app.use(["/api", "/auth"], apiLimiter);
 
 app.use(express.json({ limit: "100kb" }));
 app.use(
@@ -556,6 +581,17 @@ app.use(
     setHeaders: (res) => res.setHeader("Cache-Control", "no-store"),
   })
 );
+
+// Nothing above matched — a real 404, not a route bug. API/auth callers get
+// JSON (consistent with every other response they get); everything else
+// (an unknown page URL, a stray link) gets a friendly page instead of
+// Express's default "Cannot GET ..." text.
+app.use((req, res) => {
+  if (req.path.startsWith("/api") || req.path.startsWith("/auth")) {
+    return res.status(404).json({ error: "Not found." });
+  }
+  res.status(404).sendFile(path.join(__dirname, "..", "frontend", "404.html"));
+});
 
 // Catches anything an earlier handler didn't — never leaks a stack trace or
 // internal error detail to the client, only logs it server-side.

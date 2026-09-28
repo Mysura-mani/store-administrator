@@ -19,6 +19,18 @@ through a generic scanner.
 | 7 | No request body size limit | Low | Fixed |
 | 8 | Dependency vulnerabilities | — | None found (`npm audit`: 0 vulnerabilities) |
 
+### Round 2 — checked against a user-supplied risk list (28 September 2026)
+
+| # | Finding | Severity | Status |
+|---|---|---|---|
+| 9 | No blanket rate limit on general API traffic (only login-type routes were capped) — "denial of wallet" / cost-DoS risk | Medium | Fixed |
+| 10 | No explicit CORS policy declared (behavior was already safe by default, but undeclared) | Low | Fixed (made explicit) |
+| 11 | An entry could reference an employee/driver ID from a *different* branch — not a cross-tenant data leak, but a data-integrity gap in access control | Low–Medium | Fixed |
+| 12 | No `Permissions-Policy` header | Low | Fixed |
+| 13 | No custom 404 — unmatched routes fell through to Express's default page/behavior | Low | Fixed |
+| 14 | Dependency hallucination / malicious packages | — | Checked — see below |
+| 15 | Verbose stack traces, missing headers, SQL/command injection, exposed secrets | — | Re-confirmed already covered by Round 1 (#3, #6) and existing architecture (no SQL, no shell-out); see below |
+
 ## Details
 
 ### 1. Stored XSS (High) — Fixed
@@ -79,6 +91,66 @@ message to the client.
 
 ### 8. Dependency vulnerabilities — none found
 `npm audit` reported 0 vulnerabilities across all dependencies at the time of this review.
+
+### 9. Unbounded API consumption / "denial of wallet" (Medium) — Fixed
+Round 1 only rate-limited the password-checking routes. Every other `/api/*` route (history
+queries, analytics, etc.) had no limit at all — cheap for a small internal tool today, but a real
+cost/availability risk once hosted somewhere that bills per request or per compute-second (e.g.
+serverless).
+**Fix:** a second, more generous rate limiter (`express-rate-limit`, 300 requests / 15 min / IP)
+applied to every `/api` and `/auth` route, layered on top of the stricter 20/15min limiter that
+still applies specifically to the password-checking routes.
+
+### 10. CORS not explicitly declared (Low) — made explicit
+No `cors` middleware was present, which already meant no `Access-Control-Allow-Origin` header was
+ever sent — i.e. cross-origin reads were already blocked by the browser's default same-origin
+policy. That was correct, but undeclared, so a future change could accidentally introduce a
+permissive CORS config without it standing out as a deliberate choice.
+**Fix:** `cors({ origin: false })` — functionally identical to before, but now an explicit,
+auditable statement that this app never intends to serve cross-origin API callers.
+
+### 11. Cross-branch ID reference in entries (Low–Medium) — Fixed
+`addEntry`/`updateEntry` and `addDeliveryEntry`/`updateDeliveryEntry` accepted any
+`employeeId`/`driverId` string without checking it actually belonged to the branch making the
+request. A branch's own staff member (already authenticated for that branch) could submit an
+entry referencing another branch's employee/driver UUID. This does **not** leak the other branch's
+data (the response never reflects anything about that ID beyond accepting it, and the history view
+would just show "(removed employee)" since the foreign ID isn't in the acting branch's own
+employee list) — it's a data-integrity gap, not a cross-tenant read, but it's still wrong for an
+entry to be able to reference an ID outside its own branch at all.
+**Fix:** `validateEntryInput`/`validateDeliveryEntryInput` now take the branch's actual set of
+employee/driver IDs (active or inactive) and silently drop any row referencing an ID outside it,
+consistent with how an incomplete row (no ID picked yet) was already handled.
+**Verified:** created a real entry through the UI after the fix to confirm legitimate saves are
+unaffected.
+
+### 12. Missing `Permissions-Policy` header (Low) — Fixed
+Not set by the current `helmet` version by default.
+**Fix:** added explicitly, denying geolocation/camera/microphone/payment/USB — none of which this
+app uses, so if an XSS or a malicious dependency ever tried to invoke them, the browser refuses.
+
+### 13. No custom 404 (Low) — Fixed
+Unmatched routes fell through to Express's default "Cannot GET ..." response.
+**Fix:** a catch-all route (after static file serving, before the error handler) that returns
+JSON `{"error":"Not found."}` for `/api`/`/auth` paths and a styled `frontend/404.html` page for
+everything else.
+
+### 14. Dependency hallucination / malicious packages — checked, none found
+Verified every dependency in `package.json` (`bcryptjs`, `dotenv`, `express`, `express-session`,
+`google-auth-library`, `googleapis`, `helmet`, `express-rate-limit`, `cors`) actually resolves on
+the real npm registry to the well-known, canonically-named package for that library (`npm view
+<pkg>` — confirmed real maintainers, sane version numbers, matches the intended library), not a
+similarly-named typosquat. `npm audit` (which requires real registry resolution) also passed
+cleanly, which independently confirms none of these are non-existent or phantom packages.
+
+### 15. Re-confirmed from the user's list
+- **Verbose stack traces** — covered by Round 1 #6 (catch-all error handler).
+- **Missing HTTP headers** — covered by Round 1 #3 (`helmet`), extended by #12 above.
+- **SQL injection** — not applicable; no SQL database exists in this architecture.
+- **Command injection** — checked: no `child_process`/`exec`/`spawn` usage anywhere in `backend/`.
+- **Exposed API keys & server secrets** — re-checked: `.env` and `backend/data/*` have never been
+  committed at any point in git history (`git log --all --full-history` on both — empty), and
+  nothing in the tracked repo contains a real secret value (checked for common key/token patterns).
 
 ## Things assessed and judged adequate as-is
 
