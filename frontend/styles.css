@@ -1,4 +1,9 @@
 :root {
+  /* This app is light-themed only; without this, browsers that are set to
+     dark mode render native form controls (select/option popups, etc.) in
+     their own dark-mode colors regardless of this page's actual CSS, which
+     looks like a black flash before the popup repaints. */
+  color-scheme: light;
   --bg: #f5f6f8;
   --card: #ffffff;
   --border: #e1e4e9;
