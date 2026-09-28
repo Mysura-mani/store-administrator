@@ -607,12 +607,15 @@
     try {
       const info = await api("/api/owner/sheet-info");
       if (!info.sheetUrl) {
-        statusEl.textContent = "No Google Sheet is configured for this deployment.";
-        actionsEl.innerHTML = "";
+        statusEl.textContent = "No Google Sheet is connected.";
+        actionsEl.innerHTML = `<a class="btn-primary btn-small" href="/setup.html">Connect a Google Sheet</a>`;
         return;
       }
-      statusEl.textContent = "All store data (employees, drivers, tip entries, delivery entries) reads and writes directly to this Google Sheet — every save takes effect immediately.";
-      actionsEl.innerHTML = `<a class="btn-secondary btn-small" href="${escapeHtml(info.sheetUrl)}" target="_blank" rel="noopener">Open Google Sheet &#8599;</a>`;
+      statusEl.textContent = `Connected as ${info.email || "an unknown account"}. All store data (employees, drivers, tip entries, delivery entries) reads and writes directly to this Google Sheet — every save takes effect immediately.`;
+      actionsEl.innerHTML = `
+        <a class="btn-secondary btn-small" href="${escapeHtml(info.sheetUrl)}" target="_blank" rel="noopener">Open Google Sheet &#8599;</a>
+        <a class="btn-secondary btn-small" href="/setup.html?reconnect=1">Change connected Google Sheet</a>
+      `;
     } catch (err) {
       statusEl.textContent = "Couldn't load storage info.";
     }

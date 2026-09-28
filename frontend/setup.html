@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Set up Tips Tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="center-screen">
+  <div class="card auth-card" id="setup-card" style="max-width:460px">
+    <h1 id="setup-title">Set up Tips Tracker</h1>
+    <p class="subtitle" id="setup-subtitle">Loading&hellip;</p>
+    <div class="error-msg" id="setup-error"></div>
+
+    <div id="warning-step" style="display:none">
+      <div class="error-msg" style="display:block; font-weight:700">
+        Do not change the current mail unless it is necessary, because the data would vanish.
+      </div>
+      <p class="subtitle">
+        The Sheet currently connected stays exactly as it is — it just won't be reachable from this app
+        anymore unless you reconnect that same Google account later.
+      </p>
+      <button type="button" class="btn-primary btn-full" id="warning-continue-btn">I understand, continue</button>
+      <button type="button" class="btn-secondary btn-full" id="warning-cancel-btn" style="margin-top:8px">Cancel</button>
+    </div>
+
+    <div id="connect-step" style="display:none">
+      <button type="button" class="btn-primary btn-full" id="create-btn">Create a new Google Sheet for me</button>
+      <div class="or-divider"><span>OR</span></div>
+      <label for="existing-sheet-input">Use an existing Google Sheet</label>
+      <input type="text" id="existing-sheet-input" placeholder="Paste the Sheet's URL or ID" />
+      <p class="hint">You'll be asked to sign in with the Google account that owns (or has Editor access to) that Sheet.</p>
+      <button type="button" class="btn-secondary btn-full" id="existing-btn">Connect this Sheet</button>
+    </div>
+
+    <form id="password-step" style="display:none">
+      <p class="subtitle">Your Google Sheet is connected. Set the Owner password you'll use to log in from now on.</p>
+      <label for="owner-password">Owner password</label>
+      <input type="password" id="owner-password" minlength="6" placeholder="At least 6 characters" />
+      <button type="submit" class="btn-primary btn-full" style="margin-top:14px">Finish setup</button>
+    </form>
+
+    <div id="done-step" style="display:none">
+      <p class="subtitle">All set. Redirecting to the login page&hellip;</p>
+    </div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script>
+  const ERROR_MESSAGES = {
+    google_not_configured: "Google sign-in isn't set up for this deployment yet — check the server's environment variables.",
+    missing_sheet_id: "Paste the Sheet's URL or ID before continuing.",
+    google_login_failed: "Something went wrong connecting to Google. Please try again.",
+    no_refresh_token: "Google didn't grant persistent access this time. Please try again.",
+    sheet_access_failed: "Couldn't access that Sheet. Make sure the link is correct and that you own it or have Editor access.",
+  };
+
+  function extractSheetId(input) {
+    const trimmed = input.trim();
+    const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : trimmed;
+  }
+
+  function showStep(id) {
+    ["warning-step", "connect-step", "password-step", "done-step"].forEach((s) => {
+      document.getElementById(s).style.display = s === id ? "block" : "none";
+    });
+  }
+
+  (async () => {
+    const params = new URLSearchParams(window.location.search);
+    const errorCode = params.get("error");
+    if (errorCode && ERROR_MESSAGES[errorCode]) {
+      document.getElementById("setup-error").textContent = ERROR_MESSAGES[errorCode];
+    }
+
+    const status = await api("/api/setup/status");
+
+    if (status.connected && status.ownerPasswordSet && !params.get("connected") && !params.get("reconnect")) {
+      window.location.href = "/login.html";
+      return;
+    }
+
+    if (status.connected && !status.ownerPasswordSet) {
+      document.getElementById("setup-subtitle").textContent = "Almost done.";
+      showStep("password-step");
+      return;
+    }
+
+    if (params.get("reconnect") === "1") {
+      document.getElementById("setup-title").textContent = "Change connected Google Sheet";
+      document.getElementById("setup-subtitle").textContent = "";
+      showStep("warning-step");
+      return;
+    }
+
+    document.getElementById("setup-subtitle").textContent =
+      "Connect a Google account so this app has a Sheet to store its data in — nothing else works until this is done.";
+    showStep("connect-step");
+  })();
+
+  document.getElementById("warning-continue-btn").addEventListener("click", () => {
+    document.getElementById("setup-title").textContent = "Connect a different Google Sheet";
+    document.getElementById("setup-subtitle").textContent = "";
+    showStep("connect-step");
+  });
+  document.getElementById("warning-cancel-btn").addEventListener("click", () => {
+    window.location.href = "/owner-dashboard.html";
+  });
+
+  document.getElementById("create-btn").addEventListener("click", () => {
+    window.location.href = "/auth/google-sheets?mode=create";
+  });
+  document.getElementById("existing-btn").addEventListener("click", () => {
+    const raw = document.getElementById("existing-sheet-input").value;
+    const sheetId = extractSheetId(raw);
+    if (!sheetId) {
+      document.getElementById("setup-error").textContent = "Paste the Sheet's URL or ID first.";
+      return;
+    }
+    window.location.href = `/auth/google-sheets?mode=existing&sheetId=${encodeURIComponent(sheetId)}`;
+  });
+
+  document.getElementById("password-step").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    document.getElementById("setup-error").textContent = "";
+    try {
+      await api("/api/setup/owner-password", {
+        method: "POST",
+        body: JSON.stringify({ password: document.getElementById("owner-password").value }),
+      });
+      showStep("done-step");
+      window.location.href = "/owner-dashboard.html";
+    } catch (err) {
+      document.getElementById("setup-error").textContent = err.message;
+    }
+  });
+</script>
+</body>
+</html>

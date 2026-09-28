@@ -1,11 +1,13 @@
-// Low-level Google Sheets access. The Sheet is now this app's database (not
-// a mirror of local files), so the credentials to reach it are required,
-// static environment variables — not something the app discovers and
-// persists itself at runtime, since there's no writable local disk to stash
-// it on once deployed to a serverless host.
+// Low-level Google Sheets access. The Sheet is this app's database (not a
+// mirror of local files), and which Sheet/credentials to use is the owner's
+// own runtime choice (see controlSheet.js) rather than something fixed at
+// deploy time — so, unlike GOOGLE_CLIENT_ID/SECRET (the app's own OAuth
+// client identity, which never changes), the sheet ID and refresh token
+// are read fresh from that connection instead of from env vars.
 const { google } = require("googleapis");
+const controlSheet = require("./controlSheet");
 
-let cachedSheetsApi = null;
+let cached = null; // { refreshToken, sheetId, sheetsApi }
 let cachedGidByTab = null;
 
 function requireEnv(name) {
@@ -14,19 +16,32 @@ function requireEnv(name) {
   return value;
 }
 
-function getSheetId() {
-  return requireEnv("GOOGLE_SHEET_ID");
+async function getConnectionOrThrow() {
+  const conn = await controlSheet.getConnection();
+  if (!conn || !conn.sheetId || !conn.refreshToken) {
+    throw new Error("No Google Sheet is connected yet. Connect one from Settings.");
+  }
+  return conn;
 }
 
-function getSheetsApi() {
-  if (cachedSheetsApi) return cachedSheetsApi;
+async function getSheetId() {
+  const conn = await getConnectionOrThrow();
+  return conn.sheetId;
+}
+
+async function getSheetsApi() {
+  const conn = await getConnectionOrThrow();
+  if (cached && cached.refreshToken === conn.refreshToken && cached.sheetId === conn.sheetId) {
+    return cached.sheetsApi;
+  }
   const clientId = requireEnv("GOOGLE_CLIENT_ID");
   const clientSecret = requireEnv("GOOGLE_CLIENT_SECRET");
-  const refreshToken = requireEnv("GOOGLE_REFRESH_TOKEN");
   const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-  oauth2Client.setCredentials({ refresh_token: refreshToken });
-  cachedSheetsApi = google.sheets({ version: "v4", auth: oauth2Client }).spreadsheets;
-  return cachedSheetsApi;
+  oauth2Client.setCredentials({ refresh_token: conn.refreshToken });
+  const sheetsApi = google.sheets({ version: "v4", auth: oauth2Client }).spreadsheets;
+  cached = { refreshToken: conn.refreshToken, sheetId: conn.sheetId, sheetsApi };
+  cachedGidByTab = null; // a different sheet means different tab gids
+  return sheetsApi;
 }
 
 // 1-indexed column number -> letter (1 -> A, 26 -> Z, 27 -> AA, ...).
@@ -42,7 +57,7 @@ function colLetter(n) {
 
 async function getTabGid(tabName) {
   if (cachedGidByTab && cachedGidByTab[tabName] != null) return cachedGidByTab[tabName];
-  const meta = await getSheetsApi().get({ spreadsheetId: getSheetId() });
+  const meta = await (await getSheetsApi()).get({ spreadsheetId: await getSheetId() });
   cachedGidByTab = {};
   for (const s of meta.data.sheets) cachedGidByTab[s.properties.title] = s.properties.sheetId;
   return cachedGidByTab[tabName];
@@ -51,8 +66,8 @@ async function getTabGid(tabName) {
 // Creates the tab with a header row if it doesn't already exist. Safe to
 // call on every cold start — a no-op once the tab is there.
 async function ensureTab(tabName, headers) {
-  const sheetsApi = getSheetsApi();
-  const sheetId = getSheetId();
+  const sheetsApi = await getSheetsApi();
+  const sheetId = await getSheetId();
   const meta = await sheetsApi.get({ spreadsheetId: sheetId });
   const existing = meta.data.sheets.find((s) => s.properties.title === tabName);
   if (existing) {
@@ -78,8 +93,8 @@ async function ensureTab(tabName, headers) {
 // later update/delete can target it directly.
 async function getRows(tabName, headers) {
   const lastCol = colLetter(headers.length);
-  const res = await getSheetsApi().values.get({
-    spreadsheetId: getSheetId(),
+  const res = await (await getSheetsApi()).values.get({
+    spreadsheetId: await getSheetId(),
     range: `${tabName}!A2:${lastCol}`,
   });
   const values = res.data.values || [];
@@ -96,8 +111,8 @@ async function getRows(tabName, headers) {
 
 async function appendRow(tabName, headers, obj) {
   const row = headers.map((h) => (obj[h] === undefined || obj[h] === null ? "" : obj[h]));
-  await getSheetsApi().values.append({
-    spreadsheetId: getSheetId(),
+  await (await getSheetsApi()).values.append({
+    spreadsheetId: await getSheetId(),
     range: `${tabName}!A:A`,
     valueInputOption: "RAW",
     insertDataOption: "INSERT_ROWS",
@@ -108,8 +123,8 @@ async function appendRow(tabName, headers, obj) {
 async function updateRow(tabName, headers, rowNumber, obj) {
   const row = headers.map((h) => (obj[h] === undefined || obj[h] === null ? "" : obj[h]));
   const lastCol = colLetter(headers.length);
-  await getSheetsApi().values.update({
-    spreadsheetId: getSheetId(),
+  await (await getSheetsApi()).values.update({
+    spreadsheetId: await getSheetId(),
     range: `${tabName}!A${rowNumber}:${lastCol}${rowNumber}`,
     valueInputOption: "RAW",
     requestBody: { values: [row] },
@@ -118,8 +133,8 @@ async function updateRow(tabName, headers, rowNumber, obj) {
 
 async function deleteRow(tabName, rowNumber) {
   const gid = await getTabGid(tabName);
-  await getSheetsApi().batchUpdate({
-    spreadsheetId: getSheetId(),
+  await (await getSheetsApi()).batchUpdate({
+    spreadsheetId: await getSheetId(),
     requestBody: {
       requests: [{ deleteDimension: { range: { sheetId: gid, dimension: "ROWS", startIndex: rowNumber - 1, endIndex: rowNumber } } }],
     },

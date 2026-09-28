@@ -29,20 +29,22 @@
       <p class="subtitle">Give your best report today!</p>
 
       <form id="login-form">
-        <label for="store-select">Store</label>
-        <div class="input-with-icon">
-          <span class="field-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="8" r="3.5" />
-              <path d="M5 20c0-3.87 3.13-6 7-6s7 2.13 7 6" />
-            </svg>
-          </span>
-          <select id="store-select"></select>
-          <span class="chevron">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </span>
+        <div id="store-field">
+          <label for="store-select">Store</label>
+          <div class="input-with-icon">
+            <span class="field-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8" r="3.5" />
+                <path d="M5 20c0-3.87 3.13-6 7-6s7 2.13 7 6" />
+              </svg>
+            </span>
+            <select id="store-select"></select>
+            <span class="chevron">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </span>
+          </div>
         </div>
 
         <div id="password-block">
@@ -101,6 +103,14 @@
     const branchOptions = branches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join("");
     select.innerHTML = `${branchOptions}<option value="__owner__">Owner</option>`;
     select.addEventListener("change", updateGoogleVisibility);
+
+    // No branches yet (a fresh setup, before the owner has created any) —
+    // there's nothing to actually choose between, so skip the dropdown and
+    // go straight to a plain owner login. "Owner" stays the select's sole,
+    // already-selected option either way, so nothing else here needs to
+    // change — this reappears on its own the moment a branch exists, since
+    // the branch list is re-fetched fresh on every page load.
+    document.getElementById("store-field").style.display = branches.length === 0 ? "none" : "";
   }
 
   function updateGoogleVisibility() {

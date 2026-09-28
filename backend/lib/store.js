@@ -7,20 +7,11 @@ const sheetsClient = require("./sheetsClient");
 // left in this module: that's what makes this app deployable to a
 // serverless host (Vercel) with no writable/persistent disk.
 
-const DEFAULT_BRANCHES = [
-  { id: "A", name: "Branch A", staffPassword: "a123", adminPassword: "aadmin123" },
-  { id: "B", name: "Branch B", staffPassword: "b123", adminPassword: "badmin123" },
-  { id: "C", name: "Branch C", staffPassword: "c123", adminPassword: "cadmin123" },
-  { id: "D", name: "Branch D", staffPassword: "d123", adminPassword: "dadmin123" },
-];
-
 const DEFAULT_RATES = {
   driverHourlyRate: 6,
   minimumWage: 14.15,
   zoneRates: [3, 3.5, 4, 5],
 };
-
-const DEFAULT_OWNER_PASSWORD = "owner123";
 
 const CONFIG_HEADERS = ["key", "value"];
 const EMPLOYEES_HEADERS = ["id", "branchId", "name", "active"];
@@ -53,18 +44,21 @@ async function doEnsureSeeded() {
 
   const cfg = await getConfig();
   if (!cfg.branches) {
-    const branches = DEFAULT_BRANCHES.map((b) => ({
-      id: b.id,
-      name: b.name,
-      staffPasswordHash: bcrypt.hashSync(b.staffPassword, 10),
-      adminPasswordHash: bcrypt.hashSync(b.adminPassword, 10),
-      rates: { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] },
-    }));
-    await saveBranches(branches);
+    // No default branches: the owner creates each one themselves (with its
+    // own passwords) from the dashboard after connecting a Sheet — see
+    // IMPLEMENTATION_PLAN.md's setup-wizard flow.
+    await saveBranches([]);
   }
-  if (!cfg.ownerPasswordHash) {
-    await setConfigValue("ownerPasswordHash", bcrypt.hashSync(DEFAULT_OWNER_PASSWORD, 10));
-  }
+  // No default owner password either: a freshly connected Sheet has none
+  // until the owner sets one during the one-time post-connect setup step
+  // (server.js's POST /api/setup/owner-password) — there's nothing to
+  // protect yet on a brand-new Sheet, so leaving this unset has no bootstrap
+  // security gap.
+}
+
+async function hasOwnerPassword() {
+  const cfg = await getConfig();
+  return !!cfg.ownerPasswordHash;
 }
 
 async function getConfigRows() {
@@ -966,6 +960,7 @@ module.exports = {
   branchExists,
   verifyOwnerPassword,
   updateOwnerPassword,
+  hasOwnerPassword,
   getOwnerGoogleEmail,
   setOwnerGoogleEmail,
   getAnalyticsData,

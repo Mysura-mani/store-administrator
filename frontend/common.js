@@ -12,6 +12,14 @@ async function api(path, options = {}) {
     /* no body */
   }
   if (!res.ok) {
+    // Every dashboard is unusable until the owner has connected a Google
+    // Sheet (see backend/server.js's hard gate) — rather than every page
+    // handling this error individually, send the browser straight to the
+    // one-time setup wizard whenever it shows up, from wherever it shows up.
+    if (res.status === 503 && body && body.error === "not_connected" && !window.location.pathname.endsWith("/setup.html")) {
+      window.location.href = "/setup.html";
+      return new Promise(() => {}); // navigation is already underway — don't also resolve/reject
+    }
     const err = new Error((body && body.error) || `Request failed (${res.status})`);
     err.status = res.status;
     err.body = body;

@@ -8,7 +8,9 @@ const helmet = require("helmet");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const { OAuth2Client } = require("google-auth-library");
+const { google } = require("googleapis");
 const store = require("./lib/store");
+const controlSheet = require("./lib/controlSheet");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,10 +18,18 @@ const PORT = process.env.PORT || 3000;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/auth/google/callback`;
+// The one-time (and, rarely, reconnect) flow where the owner grants this app
+// access to a Google Sheet — a different redirect URI/scope set than the
+// identity-only sign-in below, so Google shows a separate consent screen and
+// this exchange can be told apart from that one. See globalConfig.js for
+// where the resulting refresh token ends up.
+const GOOGLE_SHEETS_REDIRECT_URI =
+  process.env.GOOGLE_SHEETS_REDIRECT_URI || `http://localhost:${PORT}/auth/google-sheets/callback`;
 // Only for the interactive "Sign in with Google" identity check on the login
 // page — separate from the Sheets database connection, which authenticates
-// with its own static GOOGLE_REFRESH_TOKEN (see backend/lib/sheetsClient.js)
-// so it works with no user present, e.g. on a fresh serverless cold start.
+// with its own owner-provided refresh token (see backend/lib/sheetsClient.js
+// and globalConfig.js) so it works with no user present, e.g. on a fresh
+// serverless cold start.
 const googleAuthConfigured = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
 const oauthClient = googleAuthConfigured
   ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
@@ -139,13 +149,42 @@ app.use((req, res, next) => {
   next();
 });
 
-// Ensures the Sheet's tabs exist and default branches/owner password are
-// seeded — once per process, the first time any request needs it (a cold
-// start on a serverless host has no other "startup" moment to do this in).
+// Ensures the currently-connected Sheet's tabs exist — once per process per
+// Sheet, the first time any request needs it (a cold start on a serverless
+// host has no other "startup" moment to do this in, and the owner switching
+// Sheets mid-lifetime of a warm instance means "once per process" alone
+// isn't enough — it has to be once per Sheet).
 let readyPromise = null;
+let seededForSheetId = null;
+app.use(
+  ah(async (req, res, next) => {
+    const conn = await controlSheet.getConnection();
+    req.sheetConnected = !!(conn && conn.sheetId && conn.refreshToken);
+    if (req.sheetConnected && seededForSheetId !== conn.sheetId) {
+      readyPromise = store.ensureSeeded();
+      seededForSheetId = conn.sheetId;
+    }
+    if (req.sheetConnected) await readyPromise;
+    next();
+  })
+);
+
+// The whole app is unusable until the owner has connected a Google Sheet —
+// "Sheet connected" isn't a per-feature check, it's a prerequisite for
+// everything, on every dashboard. The one-time setup wizard itself (and its
+// own status check) has to stay reachable regardless, since establishing
+// that connection is exactly what it's for.
+const SETUP_ALLOWED_PREFIXES = ["/auth/google-sheets", "/api/setup"];
 app.use((req, res, next) => {
-  if (!readyPromise) readyPromise = store.ensureSeeded();
-  readyPromise.then(() => next(), next);
+  if (req.sheetConnected) return next();
+  if (SETUP_ALLOWED_PREFIXES.some((p) => req.path.startsWith(p))) return next();
+  if (req.path.startsWith("/api") || req.path.startsWith("/auth")) {
+    return res.status(503).json({ error: "not_connected" });
+  }
+  if ((req.path === "/" || req.path.endsWith(".html")) && req.path !== "/setup.html") {
+    return res.redirect("/setup.html");
+  }
+  next(); // static assets (css/js/images), including on setup.html itself
 });
 
 // Wraps an async route handler so a rejected promise reaches the error
@@ -343,13 +382,118 @@ app.put("/api/owner/google-email", requireOwner, ah(async (req, res) => {
   res.json({ ok: true, email: await store.getOwnerGoogleEmail() });
 }));
 
-// Read-only pointer at the Google Sheet backing this deployment, for the
-// owner dashboard to link to. There's no "connect/sync/disconnect" anymore —
-// every request already reads/writes the Sheet directly and immediately.
-app.get("/api/owner/sheet-info", requireOwner, (req, res) => {
-  const sheetId = process.env.GOOGLE_SHEET_ID || "";
-  res.json({ sheetUrl: sheetId ? `https://docs.google.com/spreadsheets/d/${sheetId}/edit` : null });
-});
+// Points at the currently-connected business-data Sheet (owner-chosen, not
+// fixed at deploy time — see controlSheet.js), for the owner dashboard to
+// link to and to show which Google account it's connected as.
+app.get("/api/owner/sheet-info", requireOwner, ah(async (req, res) => {
+  const conn = await controlSheet.getConnection();
+  res.json({
+    sheetUrl: conn && conn.sheetId ? `https://docs.google.com/spreadsheets/d/${conn.sheetId}/edit` : null,
+    email: conn ? conn.email : null,
+  });
+}));
+
+// ---------- connecting the business-data Google Sheet ----------
+//
+// Separate from "Sign in with Google" above (identity only): this is the
+// flow that actually grants the app access to a Sheet, and it's what the
+// hard gate above is waiting on. First-ever connection needs no auth (there
+// is nothing to protect yet on a deployment with no Sheet connected);
+// reconnecting to a different Sheet later requires being logged in as owner.
+
+app.get("/api/setup/status", ah(async (req, res) => {
+  const connected = await controlSheet.isConnected();
+  const ownerPasswordSet = connected ? await store.hasOwnerPassword() : false;
+  res.json({ connected, ownerPasswordSet });
+}));
+
+// Sets the owner password the very first time, right after a Sheet is
+// connected. Refuses once one is already set — from then on, changing it
+// goes through the normal authenticated /api/owner/change-password instead.
+app.post("/api/setup/owner-password", authLimiter, ah(async (req, res) => {
+  if (!(await controlSheet.isConnected())) {
+    return res.status(409).json({ error: "Connect a Google Sheet first." });
+  }
+  if (await store.hasOwnerPassword()) {
+    return res.status(409).json({ error: "An owner password is already set. Log in and use Settings to change it." });
+  }
+  const { password } = req.body || {};
+  if (!password || password.length < 6) {
+    return res.status(400).json({ error: "Password must be at least 6 characters." });
+  }
+  await store.updateOwnerPassword(password);
+  setSession(req, res, { role: "owner" });
+  res.json({ ok: true });
+}));
+
+app.get("/auth/google-sheets", ah(async (req, res) => {
+  const alreadyConnected = await controlSheet.isConnected();
+  if (alreadyConnected && req.session.role !== "owner") {
+    return res.status(403).json({ error: "Log in as owner to change the connected Google Sheet." });
+  }
+  if (!googleAuthConfigured) {
+    return res.redirect("/setup.html?error=google_not_configured");
+  }
+  const mode = req.query.mode === "existing" ? "existing" : "create";
+  const existingSheetId = mode === "existing" ? String(req.query.sheetId || "").trim() : "";
+  if (mode === "existing" && !existingSheetId) {
+    return res.redirect("/setup.html?error=missing_sheet_id");
+  }
+  const state = crypto.randomBytes(16).toString("hex");
+  setSession(req, res, {
+    ...req.session,
+    sheetsOAuthState: state,
+    sheetsOAuthMode: mode,
+    sheetsOAuthSheetId: existingSheetId,
+  });
+  const url = oauthClient.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent", // forces a fresh refresh_token every time, including on reconnect
+    scope: ["openid", "email", "https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"],
+    state,
+    redirect_uri: GOOGLE_SHEETS_REDIRECT_URI,
+  });
+  res.redirect(url);
+}));
+
+app.get("/auth/google-sheets/callback", ah(async (req, res) => {
+  const { code, state } = req.query;
+  const expectedState = req.session.sheetsOAuthState;
+  const mode = req.session.sheetsOAuthMode;
+  const existingSheetId = req.session.sheetsOAuthSheetId;
+
+  if (!googleAuthConfigured || !code || !state || state !== expectedState) {
+    return res.redirect("/setup.html?error=google_login_failed");
+  }
+  try {
+    const { tokens } = await oauthClient.getToken({ code, redirect_uri: GOOGLE_SHEETS_REDIRECT_URI });
+    if (!tokens.refresh_token) {
+      return res.redirect("/setup.html?error=no_refresh_token");
+    }
+    const ticket = await oauthClient.verifyIdToken({ idToken: tokens.id_token, audience: GOOGLE_CLIENT_ID });
+    const email = ticket.getPayload().email;
+
+    const ownerOAuthClient = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
+    ownerOAuthClient.setCredentials(tokens);
+    const sheetsApi = google.sheets({ version: "v4", auth: ownerOAuthClient }).spreadsheets;
+
+    let sheetId;
+    if (mode === "existing") {
+      sheetId = existingSheetId;
+      await sheetsApi.get({ spreadsheetId: sheetId }); // throws if inaccessible
+    } else {
+      const created = await sheetsApi.create({ requestBody: { properties: { title: "Tips Tracker Data" } } });
+      sheetId = created.data.spreadsheetId;
+    }
+
+    await controlSheet.setConnection({ email, sheetId, refreshToken: tokens.refresh_token });
+    setSession(req, res, {}); // stale role/branchId from before a reconnect shouldn't carry over
+    res.redirect("/setup.html?connected=1");
+  } catch (err) {
+    console.error(err);
+    res.redirect(`/setup.html?error=${mode === "existing" ? "sheet_access_failed" : "google_login_failed"}`);
+  }
+}));
 
 app.get("/auth/google", (req, res) => {
   if (!googleAuthConfigured) {
