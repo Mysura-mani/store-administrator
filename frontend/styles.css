@@ -58,7 +58,7 @@ label {
   color: #374151;
 }
 
-input, select {
+input, select, .cdd-trigger {
   width: 100%;
   padding: 9px 11px;
   border: 1px solid var(--border);
@@ -68,7 +68,44 @@ input, select {
   color: var(--text);
 }
 
-input:focus, select:focus { outline: 2px solid var(--primary); outline-offset: 0; border-color: var(--primary); }
+input:focus, select:focus, .cdd-trigger:focus { outline: 2px solid var(--primary); outline-offset: 0; border-color: var(--primary); }
+
+/* ---------- custom dropdown (replaces native <select> popups) ---------- */
+/* Some Windows/Chromium setups render the native <select> popup as a solid
+   black box for a second before painting its options — a GPU-compositing
+   bug in the browser (it reproduces on other sites' plain <select>
+   elements too), not something reachable from page CSS. Rendering our own
+   options list sidesteps the native popup entirely. See common.js's
+   enhanceSelect(), which builds this around every <select> automatically. */
+.cdd-wrap { position: relative; }
+.cdd-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.cdd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cdd-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--muted); transition: transform 0.15s; }
+.cdd-trigger[aria-expanded="true"] .cdd-chevron { transform: rotate(180deg); }
+/* position: fixed + appended to <body> (not left inside .cdd-wrap) so an
+   ancestor with overflow: hidden (e.g. .login-card) can't clip the open
+   panel the way it would a normal absolutely-positioned descendant. */
+.cdd-panel {
+  position: fixed;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.14);
+  overflow-y: auto;
+  z-index: 1000;
+  padding: 4px;
+}
+.cdd-option { padding: 8px 10px; border-radius: 6px; font-size: 14px; }
+.cdd-option:hover { background: #f0f4ff; }
+.cdd-option[aria-selected="true"] { font-weight: 600; color: var(--primary); }
 
 button {
   cursor: pointer;
@@ -209,7 +246,7 @@ tbody tr:hover { background: #fafbfc; }
 .row > * { flex: 1; min-width: 160px; }
 
 .shift-row { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 8px; }
-.shift-row select { flex: 2; }
+.shift-row select, .shift-row .cdd-wrap { flex: 2; }
 .shift-row input { flex: 1; }
 .shift-row button { flex: 0 0 auto; }
 
@@ -444,6 +481,15 @@ tbody tr:hover { background: #fafbfc; }
   min-width: 0;
 }
 .input-with-icon select { appearance: none; -webkit-appearance: none; cursor: pointer; }
+.input-with-icon .cdd-wrap { flex: 1; min-width: 0; }
+.input-with-icon .cdd-trigger {
+  border: none;
+  background: transparent;
+  padding: 4px 20px 4px 0;
+  width: 100%;
+}
+/* the wrapper already renders its own .chevron span below */
+.input-with-icon .cdd-chevron { display: none; }
 .input-with-icon .chevron {
   position: absolute;
   right: 0;
@@ -584,7 +630,7 @@ tbody tr:hover { background: #fafbfc; }
 .analytics-filters { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
 .analytics-filter { display: flex; flex-direction: column; min-width: 150px; }
 .analytics-filter label { margin: 0 0 6px; font-size: 12px; }
-.analytics-filter select { margin: 0; }
+.analytics-filter select, .analytics-filter .cdd-wrap { margin: 0; }
 .analytics-chart-wrap { position: relative; height: 360px; }
 .analytics-multiples { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
 .analytics-multiple-card { border: 1px solid var(--border); border-radius: 10px; padding: 14px; }

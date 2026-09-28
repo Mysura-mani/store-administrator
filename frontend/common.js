@@ -174,6 +174,157 @@ function todayStr() {
   return toDateStr(new Date());
 }
 
+// ---------- custom dropdown (replaces native <select> popups) ----------
+// Wraps a <select> with a button + options panel we render and paint
+// ourselves, so opening a dropdown never invokes the browser's native
+// popup (see styles.css's ".cdd-*" rules for why). The <select> itself
+// stays in the DOM, hidden, as the source of truth — every existing
+// `.value` read/write, `.innerHTML` repopulation, and `change` listener
+// across the app (entry.html, delivery-entry.html, owner-dashboard.html,
+// login.html, ...) keeps working exactly as before, untouched.
+function enhanceSelect(select) {
+  if (select.dataset.cddEnhanced) return;
+  select.dataset.cddEnhanced = "1";
+
+  const wrap = document.createElement("div");
+  wrap.className = "cdd-wrap";
+  select.parentNode.insertBefore(wrap, select);
+  wrap.appendChild(select);
+  select.style.display = "none";
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "cdd-trigger";
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.innerHTML =
+    `<span class="cdd-label"></span>` +
+    `<svg class="cdd-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
+  wrap.appendChild(trigger);
+  const label = trigger.querySelector(".cdd-label");
+
+  // Appended to <body>, not `wrap` — see the position:fixed note in
+  // styles.css on .cdd-panel for why (ancestors like .login-card clip
+  // absolutely-positioned descendants via overflow: hidden).
+  const panel = document.createElement("div");
+  panel.className = "cdd-panel";
+  panel.setAttribute("role", "listbox");
+  panel.hidden = true;
+  document.body.appendChild(panel);
+
+  function refreshLabel() {
+    const opt = select.options[select.selectedIndex];
+    label.textContent = opt ? opt.textContent : "";
+  }
+
+  function positionPanel() {
+    const r = trigger.getBoundingClientRect();
+    panel.style.left = `${r.left}px`;
+    panel.style.width = `${r.width}px`;
+    const spaceBelow = window.innerHeight - r.bottom;
+    if (spaceBelow < 200 && r.top > spaceBelow) {
+      panel.style.top = "auto";
+      panel.style.bottom = `${window.innerHeight - r.top + 4}px`;
+      panel.style.maxHeight = `${r.top - 8}px`;
+    } else {
+      panel.style.bottom = "auto";
+      panel.style.top = `${r.bottom + 4}px`;
+      panel.style.maxHeight = `${spaceBelow - 8}px`;
+    }
+  }
+
+  function buildPanel() {
+    panel.innerHTML = "";
+    Array.from(select.options).forEach((opt) => {
+      const item = document.createElement("div");
+      item.className = "cdd-option";
+      item.textContent = opt.textContent;
+      item.setAttribute("role", "option");
+      if (opt.value === select.value) item.setAttribute("aria-selected", "true");
+      item.addEventListener("click", () => {
+        select.value = opt.value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        closePanel();
+        trigger.focus();
+      });
+      panel.appendChild(item);
+    });
+  }
+
+  function openPanel() {
+    document.querySelectorAll(".cdd-panel").forEach((p) => {
+      if (p !== panel) p.hidden = true;
+    });
+    buildPanel();
+    positionPanel();
+    panel.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    window.addEventListener("scroll", positionPanel, true);
+    window.addEventListener("resize", positionPanel);
+    document.addEventListener("mousedown", onOutsideClick, true);
+  }
+
+  function closePanel() {
+    panel.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    window.removeEventListener("scroll", positionPanel, true);
+    window.removeEventListener("resize", positionPanel);
+    document.removeEventListener("mousedown", onOutsideClick, true);
+  }
+
+  function onOutsideClick(e) {
+    if (!wrap.contains(e.target) && !panel.contains(e.target)) closePanel();
+  }
+
+  trigger.addEventListener("click", () => {
+    if (select.disabled) return;
+    if (panel.hidden) openPanel();
+    else closePanel();
+  });
+  trigger.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closePanel();
+  });
+
+  // Existing pages both write `select.value = x` directly (owner-dashboard's
+  // filters) and repopulate via `select.innerHTML = "<option>...</option>"`
+  // with no explicit `.value =` afterward (login.html's populateSelect()) —
+  // covering the former means overriding the native accessor, since setting
+  // .value doesn't touch the DOM in a way a MutationObserver would catch.
+  const nativeValue = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+  Object.defineProperty(select, "value", {
+    configurable: true,
+    get() {
+      return nativeValue.get.call(select);
+    },
+    set(v) {
+      nativeValue.set.call(select, v);
+      refreshLabel();
+    },
+  });
+  new MutationObserver(refreshLabel).observe(select, { childList: true });
+
+  refreshLabel();
+}
+
+function enhanceSelectsWithin(root) {
+  root.querySelectorAll("select").forEach(enhanceSelect);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  enhanceSelectsWithin(document);
+  // Pages add <select> elements after load too (entry.html's per-shift row,
+  // delivery-entry.html's per-driver row) — catch those the same way.
+  new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        if (node.matches("select")) enhanceSelect(node);
+        else enhanceSelectsWithin(node);
+      });
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+});
+
 // ---------- cookie notice ----------
 // This app only ever sets one cookie — the login session (tips.sid) — which
 // is strictly necessary for the site to work at all, so there's nothing to
