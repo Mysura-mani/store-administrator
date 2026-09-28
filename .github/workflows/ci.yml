@@ -23,9 +23,10 @@ jobs:
         run: |
           node --check backend/server.js
           node --check backend/lib/store.js
-          node --check backend/lib/sheets.js
+          node --check backend/lib/sheetsClient.js
+          node --check api/index.js
 
       - name: Verify the data layer loads
         run: |
+          node -e "require('./backend/lib/sheetsClient.js'); console.log('backend/lib/sheetsClient.js loaded OK')"
           node -e "require('./backend/lib/store.js'); console.log('backend/lib/store.js loaded OK')"
-          node -e "require('./backend/lib/sheets.js'); console.log('backend/lib/sheets.js loaded OK')"
