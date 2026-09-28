@@ -21,21 +21,27 @@
 
   <div class="login-form-panel">
     <div class="login-form-card">
-      <h1>Welcome back</h1>
-      <p class="subtitle" id="form-subtitle">Choose your store and enter its password.</p>
-
-      <div class="login-role-tabs" id="role-tabs"></div>
+      <div class="login-eyebrow"><span class="login-eyebrow-icon">&#128101;</span> Dashboard Login</div>
+      <h1>WELCOME BACK</h1>
+      <p class="subtitle">Give your best report today!</p>
 
       <form id="login-form">
+        <label for="store-select">Store</label>
+        <div class="input-with-icon">
+          <span class="field-icon">&#128100;</span>
+          <select id="store-select"></select>
+        </div>
+
         <label for="password">Password</label>
         <div class="input-with-icon">
           <span class="field-icon">&#128274;</span>
-          <input type="password" id="password" required autofocus />
+          <input type="password" id="password" required />
         </div>
-        <button type="submit" class="btn-primary btn-full">Log in</button>
-      </form>
 
-      <div class="error-msg" id="error"></div>
+        <div class="error-msg" id="error"></div>
+
+        <button type="submit" class="btn-primary btn-full">Login to My Account</button>
+      </form>
     </div>
   </div>
 </div>
@@ -43,43 +49,15 @@
 <script src="/common.js"></script>
 <script>
   let branches = [];
-  let selectedBranch = null;
-  let ownerMode = false;
 
-  function renderTabs() {
-    const wrap = document.getElementById("role-tabs");
-    const branchButtons = branches
-      .map((b) => `<button type="button" data-id="${b.id}" class="branch-tab">${b.name}</button>`)
-      .join("");
-    wrap.innerHTML = `${branchButtons}<button type="button" class="owner-tab" data-owner="1">Owner</button>`;
+  function isOwnerSelected() {
+    return document.getElementById("store-select").value === "__owner__";
+  }
 
-    const branchBtns = wrap.querySelectorAll(".branch-tab");
-    const ownerBtn = wrap.querySelector(".owner-tab");
-
-    function selectBranch(btn) {
-      wrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      ownerMode = false;
-      selectedBranch = btn.dataset.id;
-      document.getElementById("form-subtitle").textContent = "Choose your store and enter its password.";
-      document.getElementById("error").textContent = "";
-    }
-
-    branchBtns.forEach((btn) => btn.addEventListener("click", () => selectBranch(btn)));
-    ownerBtn.addEventListener("click", () => {
-      wrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
-      ownerBtn.classList.add("active");
-      ownerMode = true;
-      selectedBranch = null;
-      document.getElementById("form-subtitle").textContent = "Enter the owner password to manage every store.";
-      document.getElementById("error").textContent = "";
-    });
-
-    if (branchBtns.length > 0) selectBranch(branchBtns[0]);
-    else {
-      ownerBtn.classList.add("active");
-      ownerMode = true;
-    }
+  function populateSelect() {
+    const select = document.getElementById("store-select");
+    const branchOptions = branches.map((b) => `<option value="${b.id}">${b.name}</option>`).join("");
+    select.innerHTML = `${branchOptions}<option value="__owner__">Owner</option>`;
   }
 
   function redirectForRole(role) {
@@ -94,7 +72,7 @@
       return;
     }
     branches = await api("/api/branches");
-    renderTabs();
+    populateSelect();
   })();
 
   document.getElementById("login-form").addEventListener("submit", async (e) => {
@@ -103,17 +81,14 @@
     errorEl.textContent = "";
     const password = document.getElementById("password").value;
     try {
-      if (ownerMode) {
+      if (isOwnerSelected()) {
         const result = await api("/api/owner-login", { method: "POST", body: JSON.stringify({ password }) });
         redirectForRole(result.role);
       } else {
-        if (!selectedBranch) {
-          errorEl.textContent = "Choose a store.";
-          return;
-        }
+        const branchId = document.getElementById("store-select").value;
         const result = await api("/api/login", {
           method: "POST",
-          body: JSON.stringify({ branchId: selectedBranch, password }),
+          body: JSON.stringify({ branchId, password }),
         });
         redirectForRole(result.role);
       }

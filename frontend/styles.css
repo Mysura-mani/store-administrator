@@ -364,21 +364,24 @@ tbody tr:hover { background: #fafbfc; }
   padding: 40px 24px;
 }
 .login-form-card { width: 100%; max-width: 380px; }
-.login-form-card h1 { font-size: 26px; margin-bottom: 6px; }
+.login-form-card h1 { font-size: 26px; margin-bottom: 6px; letter-spacing: 0.02em; }
 .login-form-card .subtitle { margin-top: 0; margin-bottom: 24px; }
 
-.login-role-tabs { display: flex; gap: 4px; margin-bottom: 18px; background: #f1f2f5; padding: 4px; border-radius: 9px; }
-.login-role-tabs button {
-  flex: 1;
-  background: transparent;
-  border: none;
-  padding: 8px 6px;
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 13px;
+.login-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--primary);
+  background: #eef4ff;
+  padding: 5px 12px;
+  border-radius: 999px;
+  margin-bottom: 16px;
 }
-.login-role-tabs button.active { background: #fff; color: var(--text); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); }
-.login-role-tabs button.owner-tab.active { background: #1e3a8a; color: #fff; }
+.login-eyebrow-icon { font-size: 13px; }
 
 .input-with-icon { position: relative; }
 .input-with-icon .field-icon {
@@ -389,10 +392,26 @@ tbody tr:hover { background: #fafbfc; }
   color: var(--muted);
   font-size: 15px;
   pointer-events: none;
+  z-index: 1;
 }
-.input-with-icon input { padding-left: 36px; }
+.input-with-icon input, .input-with-icon select { padding-left: 36px; }
+.input-with-icon select { appearance: none; -webkit-appearance: none; background: #fff; cursor: pointer; }
+.input-with-icon::after {
+  content: "\25BE";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+  font-size: 13px;
+}
+.input-with-icon:has(input)::after { content: none; }
 
-@media (max-width: 860px) {
+/* The illustration hides only on genuinely narrow (phone-width) viewports —
+   the Claude desktop browser pane's own default width is ~740px, which must
+   still show it. */
+@media (max-width: 620px) {
   .login-illustration { display: none; }
   .login-form-panel { flex: 1 1 100%; }
 }
