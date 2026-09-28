@@ -29,12 +29,20 @@
   (async () => {
     const session = await requireSession();
     if (!session) return;
+    if (session.role === "owner") {
+      window.location.href = "/owner-dashboard.html";
+      return;
+    }
 
     const who = session.role === "admin" ? `Admin (${session.branchName || session.branchId})` : `Staff (${session.branchName || session.branchId})`;
+    const backToOwnerBtn = session.viaOwner
+      ? `<button class="btn-secondary" id="back-to-owner-btn">&larr; Back to Owner</button>`
+      : "";
     document.getElementById("topbar-simple").innerHTML = `
       <div class="brand">Tips<span>Tracker</span> <span class="branch-tag">${session.branchName || session.branchId}</span></div>
       <div class="user-pill">
         <span>${who}</span>
+        ${backToOwnerBtn}
         <button class="btn-secondary" id="logout-btn">Log out</button>
       </div>
     `;
@@ -42,6 +50,13 @@
       await api("/api/logout", { method: "POST" });
       window.location.href = "/login.html";
     });
+    const backBtn = document.getElementById("back-to-owner-btn");
+    if (backBtn) {
+      backBtn.addEventListener("click", async () => {
+        await api("/api/owner/return", { method: "POST" });
+        window.location.href = "/owner-dashboard.html";
+      });
+    }
   })();
 </script>
 </body>

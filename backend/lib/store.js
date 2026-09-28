@@ -20,6 +20,8 @@ const DEFAULT_RATES = {
   zoneRates: [3, 3.5, 4, 5],
 };
 
+const DEFAULT_OWNER_PASSWORD = "owner123";
+
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -43,15 +45,23 @@ function round2(n) {
 // ---------- config (branches + credentials) ----------
 
 function ensureSeeded() {
-  if (fs.existsSync(CONFIG_PATH)) return;
-  const branches = DEFAULT_BRANCHES.map((b) => ({
-    id: b.id,
-    name: b.name,
-    staffPasswordHash: bcrypt.hashSync(b.staffPassword, 10),
-    adminPasswordHash: bcrypt.hashSync(b.adminPassword, 10),
-    rates: { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] },
-  }));
-  writeJson(CONFIG_PATH, { branches });
+  if (!fs.existsSync(CONFIG_PATH)) {
+    const branches = DEFAULT_BRANCHES.map((b) => ({
+      id: b.id,
+      name: b.name,
+      staffPasswordHash: bcrypt.hashSync(b.staffPassword, 10),
+      adminPasswordHash: bcrypt.hashSync(b.adminPassword, 10),
+      rates: { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] },
+    }));
+    writeJson(CONFIG_PATH, { branches, ownerPasswordHash: bcrypt.hashSync(DEFAULT_OWNER_PASSWORD, 10) });
+    return;
+  }
+  // Backfill the owner account for configs saved before the owner role existed.
+  const cfg = getConfig();
+  if (!cfg.ownerPasswordHash) {
+    cfg.ownerPasswordHash = bcrypt.hashSync(DEFAULT_OWNER_PASSWORD, 10);
+    saveConfig(cfg);
+  }
 }
 
 function getConfig() {
@@ -72,6 +82,82 @@ function getBranchConfig(branchId) {
 
 function branchExists(branchId) {
   return !!getBranchConfig(branchId);
+}
+
+// ---------- owner (super-admin over all branches) ----------
+
+function verifyOwnerPassword(password) {
+  const cfg = getConfig();
+  if (!cfg.ownerPasswordHash || !password) return false;
+  return bcrypt.compareSync(password, cfg.ownerPasswordHash);
+}
+
+function updateOwnerPassword(newPassword) {
+  const cfg = getConfig();
+  cfg.ownerPasswordHash = bcrypt.hashSync(newPassword, 10);
+  saveConfig(cfg);
+}
+
+function slugify(name) {
+  return (
+    name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "") || "store"
+  );
+}
+
+function generateBranchId(name, existingIds) {
+  const base = slugify(name);
+  let id = base;
+  let n = 2;
+  while (existingIds.includes(id)) {
+    id = `${base}-${n}`;
+    n++;
+  }
+  return id;
+}
+
+function createBranch({ name, staffPassword, adminPassword }) {
+  const cfg = getConfig();
+  const id = generateBranchId(name, cfg.branches.map((b) => b.id));
+  const branch = {
+    id,
+    name: name.trim(),
+    staffPasswordHash: bcrypt.hashSync(staffPassword, 10),
+    adminPasswordHash: bcrypt.hashSync(adminPassword, 10),
+    rates: { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] },
+  };
+  cfg.branches.push(branch);
+  saveConfig(cfg);
+  return { id: branch.id, name: branch.name };
+}
+
+// Owner-level update: unlike updateBranchStaffPassword/updateBranchAdminPassword
+// (self-service, used by a branch's own admin), this can also rename the store
+// and does not require knowing the current password.
+function updateBranchByOwner(id, { name, staffPassword, adminPassword }) {
+  const cfg = getConfig();
+  const branch = cfg.branches.find((b) => b.id === id);
+  if (!branch) return null;
+  if (typeof name === "string" && name.trim()) branch.name = name.trim();
+  if (staffPassword) branch.staffPasswordHash = bcrypt.hashSync(staffPassword, 10);
+  if (adminPassword) branch.adminPasswordHash = bcrypt.hashSync(adminPassword, 10);
+  saveConfig(cfg);
+  return { id: branch.id, name: branch.name };
+}
+
+function deleteBranch(id) {
+  const cfg = getConfig();
+  const before = cfg.branches.length;
+  cfg.branches = cfg.branches.filter((b) => b.id !== id);
+  saveConfig(cfg);
+  if (cfg.branches.length === before) return false;
+  const data = readAllData();
+  delete data.branches[id];
+  writeAllData(data);
+  return true;
 }
 
 function verifyStaffPassword(branchId, password) {
@@ -720,6 +806,11 @@ module.exports = {
   ensureSeeded,
   getBranches,
   branchExists,
+  verifyOwnerPassword,
+  updateOwnerPassword,
+  createBranch,
+  updateBranchByOwner,
+  deleteBranch,
   verifyStaffPassword,
   verifyAdminPassword,
   updateBranchStaffPassword,

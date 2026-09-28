@@ -10,6 +10,9 @@ a branch, staff choose between two sections:
   calculated automatically (including an Irish minimum-wage top-up on solo
   days).
 
+There's also a separate **Owner** login (a super-admin over every store — see
+[Owner account](#owner-account) below).
+
 ## Run it
 
 ```bash
@@ -57,6 +60,29 @@ Four branches are pre-configured (edit `DEFAULT_BRANCHES` in
 | B      | `b123`          | `badmin123`     |
 | C      | `c123`          | `cadmin123`     |
 | D      | `d123`          | `dadmin123`     |
+
+## Owner account
+
+The **Owner** login (default password `owner123`, changeable from the owner
+dashboard's Settings page) sits above all branches. From the Owner
+Dashboard, the owner can:
+
+- See every store at a glance.
+- **Add a store** — pick a name, get a staff + admin password, and it's
+  immediately usable from the login page. The store's internal ID is
+  auto-generated from its name (e.g. "Downtown Store" → `downtown-store`).
+- **Edit a store** — rename it and/or reset its staff and/or admin password,
+  without needing to know the old one.
+- **Delete a store** — permanently removes it and all of its employees,
+  drivers, and history. This cannot be undone.
+- **Open a store's dashboard** directly (as that store's admin) to look
+  into or manage its day-to-day data, with a "← Back to Owner" button to
+  return.
+
+The owner password is stored the same way as everything else — hashed in
+`backend/data/config.json`, seeded automatically (including for
+already-existing installs, which get the owner account backfilled on next
+start).
 
 - On the login page, pick a branch and enter its **staff password** to open
   that branch's dashboard, where you choose Tip Sheet or Delivery. Each

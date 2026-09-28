@@ -69,12 +69,17 @@ function renderShell(session, activePage, section) {
       ? `<span class="badge badge-admin">Admin</span>`
       : `<span class="badge badge-staff">Staff</span><button class="btn-secondary btn-small" id="admin-btn">Admin</button>`;
 
+  const backToOwnerBtn = session.viaOwner
+    ? `<button class="btn-secondary" id="back-to-owner-btn">&larr; Back to Owner</button>`
+    : "";
+
   document.getElementById("topbar").innerHTML = `
     <div class="brand"><a href="/dashboard.html">Tips<span>Tracker</span></a> <span class="branch-tag">${session.branchName || session.branchId}</span></div>
     <div class="nav section-tabs">${tabsHtml}</div>
     <div class="nav">${navHtml}</div>
     <div class="user-pill">
       ${roleBadge}
+      ${backToOwnerBtn}
       <button class="btn-secondary" id="logout-btn">Log out</button>
     </div>
   `;
@@ -86,6 +91,14 @@ function renderShell(session, activePage, section) {
 
   const adminBtn = document.getElementById("admin-btn");
   if (adminBtn) adminBtn.addEventListener("click", openAdminPrompt);
+
+  const backBtn = document.getElementById("back-to-owner-btn");
+  if (backBtn) {
+    backBtn.addEventListener("click", async () => {
+      await api("/api/owner/return", { method: "POST" });
+      window.location.href = "/owner-dashboard.html";
+    });
+  }
 }
 
 function openAdminPrompt() {

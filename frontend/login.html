@@ -7,67 +7,116 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="center-screen">
-  <div class="card auth-card">
-    <h1>Tips<span style="color:#2563eb">Tracker</span></h1>
-    <p class="subtitle">Choose your branch and enter its password.</p>
+<div class="login-split">
+  <div class="login-illustration">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="login-illustration-content">
+      <div class="login-brand">Tips<span>Tracker</span></div>
+      <div class="login-icon">&#128188;</div>
+      <h2>Welcome back. Give your best report today.</h2>
+      <p>Log tips and delivery payouts, track pay per employee and driver, and keep every store's numbers straight from one place.</p>
+    </div>
+  </div>
 
-    <label>Branch</label>
-    <div class="tabs" id="branch-tabs"></div>
+  <div class="login-form-panel">
+    <div class="login-form-card">
+      <h1>Welcome back</h1>
+      <p class="subtitle" id="form-subtitle">Choose your store and enter its password.</p>
 
-    <form id="login-form">
-      <label for="password">Password</label>
-      <input type="password" id="password" required autofocus />
-      <button type="submit" class="btn-primary btn-full">Log in</button>
-    </form>
+      <div class="login-role-tabs" id="role-tabs"></div>
 
-    <div class="error-msg" id="error"></div>
+      <form id="login-form">
+        <label for="password">Password</label>
+        <div class="input-with-icon">
+          <span class="field-icon">&#128274;</span>
+          <input type="password" id="password" required autofocus />
+        </div>
+        <button type="submit" class="btn-primary btn-full">Log in</button>
+      </form>
+
+      <div class="error-msg" id="error"></div>
+    </div>
   </div>
 </div>
+
 <script src="/common.js"></script>
 <script>
+  let branches = [];
   let selectedBranch = null;
+  let ownerMode = false;
 
-  function renderTabs(branches) {
-    const wrap = document.getElementById("branch-tabs");
-    wrap.innerHTML = branches
-      .map((b, i) => `<button type="button" data-id="${b.id}" class="${i === 0 ? "active" : ""}">${b.name}</button>`)
+  function renderTabs() {
+    const wrap = document.getElementById("role-tabs");
+    const branchButtons = branches
+      .map((b) => `<button type="button" data-id="${b.id}" class="branch-tab">${b.name}</button>`)
       .join("");
-    selectedBranch = branches[0] ? branches[0].id : null;
-    wrap.querySelectorAll("button").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        wrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        selectedBranch = btn.dataset.id;
-        document.getElementById("error").textContent = "";
-      });
+    wrap.innerHTML = `${branchButtons}<button type="button" class="owner-tab" data-owner="1">Owner</button>`;
+
+    const branchBtns = wrap.querySelectorAll(".branch-tab");
+    const ownerBtn = wrap.querySelector(".owner-tab");
+
+    function selectBranch(btn) {
+      wrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      ownerMode = false;
+      selectedBranch = btn.dataset.id;
+      document.getElementById("form-subtitle").textContent = "Choose your store and enter its password.";
+      document.getElementById("error").textContent = "";
+    }
+
+    branchBtns.forEach((btn) => btn.addEventListener("click", () => selectBranch(btn)));
+    ownerBtn.addEventListener("click", () => {
+      wrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+      ownerBtn.classList.add("active");
+      ownerMode = true;
+      selectedBranch = null;
+      document.getElementById("form-subtitle").textContent = "Enter the owner password to manage every store.";
+      document.getElementById("error").textContent = "";
     });
+
+    if (branchBtns.length > 0) selectBranch(branchBtns[0]);
+    else {
+      ownerBtn.classList.add("active");
+      ownerMode = true;
+    }
+  }
+
+  function redirectForRole(role) {
+    window.location.href = role === "owner" ? "/owner-dashboard.html" : "/dashboard.html";
   }
 
   (async () => {
-    const session = await fetch("/api/session");
-    if (session.ok) {
-      window.location.href = "/dashboard.html";
+    const sessionRes = await fetch("/api/session");
+    if (sessionRes.ok) {
+      const session = await sessionRes.json();
+      redirectForRole(session.role);
       return;
     }
-    const branches = await api("/api/branches");
-    renderTabs(branches);
+    branches = await api("/api/branches");
+    renderTabs();
   })();
 
   document.getElementById("login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const errorEl = document.getElementById("error");
     errorEl.textContent = "";
-    if (!selectedBranch) {
-      errorEl.textContent = "Choose a branch.";
-      return;
-    }
+    const password = document.getElementById("password").value;
     try {
-      await api("/api/login", {
-        method: "POST",
-        body: JSON.stringify({ branchId: selectedBranch, password: document.getElementById("password").value }),
-      });
-      window.location.href = "/dashboard.html";
+      if (ownerMode) {
+        const result = await api("/api/owner-login", { method: "POST", body: JSON.stringify({ password }) });
+        redirectForRole(result.role);
+      } else {
+        if (!selectedBranch) {
+          errorEl.textContent = "Choose a store.";
+          return;
+        }
+        const result = await api("/api/login", {
+          method: "POST",
+          body: JSON.stringify({ branchId: selectedBranch, password }),
+        });
+        redirectForRole(result.role);
+      }
     } catch (err) {
       errorEl.textContent = err.message;
     }

@@ -5,7 +5,12 @@
 <script>
   (async () => {
     const sessionRes = await fetch("/api/session");
-    window.location.href = sessionRes.ok ? "/dashboard.html" : "/login.html";
+    if (!sessionRes.ok) {
+      window.location.href = "/login.html";
+      return;
+    }
+    const session = await sessionRes.json();
+    window.location.href = session.role === "owner" ? "/owner-dashboard.html" : "/dashboard.html";
   })();
 </script>
 </body>

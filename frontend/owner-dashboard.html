@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Owner Dashboard - Tips Tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="owner-shell">
+  <div class="owner-sidebar">
+    <div class="brand">
+      Tips<span>Tracker</span>
+      <div class="owner-badge">Owner</div>
+    </div>
+    <div class="owner-nav">
+      <a href="#" class="nav-link active" data-view="stores"><span class="nav-icon">&#127970;</span> Stores</a>
+      <a href="#" class="nav-link" data-view="settings"><span class="nav-icon">&#9881;&#65039;</span> Settings</a>
+      <button type="button" id="logout-btn"><span class="nav-icon">&#8618;</span> Log out</button>
+    </div>
+  </div>
+
+  <div class="owner-main">
+    <div id="view-stores">
+      <div class="owner-main-header">
+        <h1>Stores</h1>
+        <button class="btn-primary" id="add-store-btn">+ Add store</button>
+      </div>
+
+      <div class="stat-card-row">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#dbeafe; color:#1d4ed8;">&#127970;</div>
+          <div class="stat-value" id="stat-store-count">&mdash;</div>
+          <div class="stat-label">Total stores</div>
+        </div>
+      </div>
+
+      <div class="store-grid" id="store-grid">
+        <p class="empty-state">Loading&hellip;</p>
+      </div>
+    </div>
+
+    <div id="view-settings" style="display:none">
+      <div class="owner-main-header">
+        <h1>Owner settings</h1>
+      </div>
+      <div class="card" style="max-width:440px">
+        <h2>Change owner password</h2>
+        <p class="subtitle">This is the password used to log in as Owner.</p>
+        <form id="owner-pw-form">
+          <label for="current-owner-password">Current password</label>
+          <input type="password" id="current-owner-password" required />
+          <label for="new-owner-password">New password</label>
+          <input type="password" id="new-owner-password" minlength="4" required />
+          <button type="submit" class="btn-primary" style="margin-top:14px">Update password</button>
+          <div class="error-msg" id="owner-pw-error"></div>
+          <div class="success-msg" id="owner-pw-success"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script>
+  let stores = [];
+
+  function switchView(view) {
+    document.getElementById("view-stores").style.display = view === "stores" ? "block" : "none";
+    document.getElementById("view-settings").style.display = view === "settings" ? "block" : "none";
+    document.querySelectorAll(".nav-link").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
+  }
+
+  document.querySelectorAll(".nav-link").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      switchView(a.dataset.view);
+    });
+  });
+
+  document.getElementById("logout-btn").addEventListener("click", async () => {
+    await api("/api/logout", { method: "POST" });
+    window.location.href = "/login.html";
+  });
+
+  function renderStores() {
+    const grid = document.getElementById("store-grid");
+    document.getElementById("stat-store-count").textContent = stores.length;
+    if (stores.length === 0) {
+      grid.innerHTML = '<p class="empty-state">No stores yet. Click "+ Add store" to create one.</p>';
+      return;
+    }
+    grid.innerHTML = stores
+      .map(
+        (s) => `
+        <div class="store-card" data-id="${s.id}">
+          <div class="store-card-header"><h3>${s.name}</h3></div>
+          <div class="store-id">ID: ${s.id}</div>
+          <div class="store-card-actions">
+            <button class="btn-primary btn-small open-store-btn">Open dashboard</button>
+            <button class="btn-secondary btn-small edit-store-btn">Edit</button>
+            <button class="btn-danger btn-small delete-store-btn">Delete</button>
+          </div>
+        </div>
+      `
+      )
+      .join("");
+
+    grid.querySelectorAll(".open-store-btn").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const id = btn.closest(".store-card").dataset.id;
+        await api(`/api/owner/branches/${id}/open`, { method: "POST" });
+        window.location.href = "/dashboard.html";
+      })
+    );
+    grid.querySelectorAll(".edit-store-btn").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const id = btn.closest(".store-card").dataset.id;
+        const store = stores.find((s) => s.id === id);
+        openStoreModal(store);
+      })
+    );
+    grid.querySelectorAll(".delete-store-btn").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const card = btn.closest(".store-card");
+        const id = card.dataset.id;
+        const store = stores.find((s) => s.id === id);
+        if (!confirm(`Delete "${store.name}"? This permanently removes its employees, drivers, and history. This cannot be undone.`)) return;
+        try {
+          await api(`/api/owner/branches/${id}`, { method: "DELETE" });
+          await loadStores();
+        } catch (err) {
+          alert(err.message);
+        }
+      })
+    );
+  }
+
+  async function loadStores() {
+    stores = await api("/api/owner/branches");
+    renderStores();
+  }
+
+  function openStoreModal(existing) {
+    const isEdit = !!existing;
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <h3>${isEdit ? `Edit ${existing.name}` : "Add a new store"}</h3>
+        <p class="subtitle">${isEdit ? "Leave a password blank to keep it unchanged." : "Set the store name and its two passwords."}</p>
+        <form id="store-form">
+          <label for="store-name">Store name</label>
+          <input type="text" id="store-name" value="${isEdit ? existing.name : ""}" required />
+          <label for="store-staff-password">${isEdit ? "New staff password (optional)" : "Staff password"}</label>
+          <input type="password" id="store-staff-password" ${isEdit ? "" : "required"} minlength="4" />
+          <label for="store-admin-password">${isEdit ? "New admin password (optional)" : "Admin password"}</label>
+          <input type="password" id="store-admin-password" ${isEdit ? "" : "required"} minlength="4" />
+          <div class="error-msg" id="store-form-error"></div>
+          <div style="display:flex; gap:10px; margin-top:14px">
+            <button type="submit" class="btn-primary">${isEdit ? "Save changes" : "Add store"}</button>
+            <button type="button" class="btn-secondary" id="store-form-cancel">Cancel</button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close();
+    });
+    document.getElementById("store-form-cancel").addEventListener("click", close);
+    document.getElementById("store-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById("store-form-error");
+      errorEl.textContent = "";
+      const name = document.getElementById("store-name").value;
+      const staffPassword = document.getElementById("store-staff-password").value;
+      const adminPassword = document.getElementById("store-admin-password").value;
+      try {
+        if (isEdit) {
+          const payload = { name };
+          if (staffPassword) payload.staffPassword = staffPassword;
+          if (adminPassword) payload.adminPassword = adminPassword;
+          await api(`/api/owner/branches/${existing.id}`, { method: "PUT", body: JSON.stringify(payload) });
+        } else {
+          await api("/api/owner/branches", { method: "POST", body: JSON.stringify({ name, staffPassword, adminPassword }) });
+        }
+        close();
+        await loadStores();
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  }
+
+  document.getElementById("add-store-btn").addEventListener("click", () => openStoreModal(null));
+
+  document.getElementById("owner-pw-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById("owner-pw-error");
+    const successEl = document.getElementById("owner-pw-success");
+    errorEl.textContent = "";
+    successEl.textContent = "";
+    try {
+      await api("/api/owner/change-password", {
+        method: "POST",
+        body: JSON.stringify({
+          currentPassword: document.getElementById("current-owner-password").value,
+          newPassword: document.getElementById("new-owner-password").value,
+        }),
+      });
+      successEl.textContent = "Password updated.";
+      e.target.reset();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  (async () => {
+    const session = await requireSession();
+    if (!session) return;
+    if (session.role !== "owner") {
+      window.location.href = "/dashboard.html";
+      return;
+    }
+    try {
+      await loadStores();
+    } catch (err) {
+      document.getElementById("store-grid").innerHTML = `
+        <p class="empty-state">Couldn't load stores (${err.message}). <button type="button" class="btn-secondary btn-small" id="retry-btn">Retry</button></p>
+      `;
+      document.getElementById("retry-btn").addEventListener("click", () => window.location.reload());
+    }
+  })();
+</script>
+</body>
+</html>

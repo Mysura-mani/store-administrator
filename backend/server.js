@@ -27,9 +27,23 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Like requireAuth, but also accepts the owner role, which has no branchId.
+function requireAnyAuth(req, res, next) {
+  if (!req.session.role) return res.status(401).json({ error: "not_authenticated" });
+  if (req.session.role !== "owner" && !req.session.branchId) return res.status(401).json({ error: "not_authenticated" });
+  next();
+}
+
 function requireAdmin(req, res, next) {
   if (req.session.role !== "admin") {
     return res.status(403).json({ error: "Admin access is required for this action." });
+  }
+  next();
+}
+
+function requireOwner(req, res, next) {
+  if (req.session.role !== "owner") {
+    return res.status(403).json({ error: "Owner access is required for this action." });
   }
   next();
 }
@@ -81,9 +95,96 @@ app.post("/api/logout", (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 
-app.get("/api/session", requireAuth, (req, res) => {
+app.get("/api/session", requireAnyAuth, (req, res) => {
+  if (req.session.role === "owner") {
+    return res.json({ role: "owner" });
+  }
   const branch = store.getBranches().find((b) => b.id === req.session.branchId);
-  res.json({ role: req.session.role, branchId: req.session.branchId, branchName: branch ? branch.name : req.session.branchId });
+  res.json({
+    role: req.session.role,
+    branchId: req.session.branchId,
+    branchName: branch ? branch.name : req.session.branchId,
+    viaOwner: !!req.session.viaOwner,
+  });
+});
+
+// ---------- owner (super-admin over all branches) ----------
+
+app.post("/api/owner-login", (req, res) => {
+  const { password } = req.body || {};
+  if (!store.verifyOwnerPassword(password)) {
+    return res.status(401).json({ error: "Incorrect owner password." });
+  }
+  req.session.role = "owner";
+  delete req.session.branchId;
+  delete req.session.viaOwner;
+  res.json({ ok: true, role: "owner" });
+});
+
+app.get("/api/owner/branches", requireOwner, (req, res) => {
+  res.json(store.getBranches());
+});
+
+app.post("/api/owner/branches", requireOwner, (req, res) => {
+  const { name, staffPassword, adminPassword } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: "Store name is required." });
+  if (!staffPassword || staffPassword.length < 4) {
+    return res.status(400).json({ error: "Staff password must be at least 4 characters." });
+  }
+  if (!adminPassword || adminPassword.length < 4) {
+    return res.status(400).json({ error: "Admin password must be at least 4 characters." });
+  }
+  res.status(201).json(store.createBranch({ name, staffPassword, adminPassword }));
+});
+
+app.put("/api/owner/branches/:id", requireOwner, (req, res) => {
+  const { name, staffPassword, adminPassword } = req.body || {};
+  if (staffPassword && staffPassword.length < 4) {
+    return res.status(400).json({ error: "Staff password must be at least 4 characters." });
+  }
+  if (adminPassword && adminPassword.length < 4) {
+    return res.status(400).json({ error: "Admin password must be at least 4 characters." });
+  }
+  const updated = store.updateBranchByOwner(req.params.id, { name, staffPassword, adminPassword });
+  if (!updated) return res.status(404).json({ error: "Store not found." });
+  res.json(updated);
+});
+
+app.delete("/api/owner/branches/:id", requireOwner, (req, res) => {
+  const deleted = store.deleteBranch(req.params.id);
+  if (!deleted) return res.status(404).json({ error: "Store not found." });
+  res.json({ ok: true });
+});
+
+// Lets the owner drop into a store's own dashboard (as that store's admin) to
+// look into or manage it directly, without needing that store's password.
+app.post("/api/owner/branches/:id/open", requireOwner, (req, res) => {
+  if (!store.branchExists(req.params.id)) return res.status(404).json({ error: "Store not found." });
+  req.session.role = "admin";
+  req.session.branchId = req.params.id;
+  req.session.viaOwner = true;
+  res.json({ ok: true });
+});
+
+// Returns from a store (opened via the above) back to the owner dashboard.
+app.post("/api/owner/return", requireAuth, (req, res) => {
+  if (!req.session.viaOwner) return res.status(403).json({ error: "Not in owner mode." });
+  req.session.role = "owner";
+  delete req.session.branchId;
+  delete req.session.viaOwner;
+  res.json({ ok: true });
+});
+
+app.post("/api/owner/change-password", requireOwner, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!store.verifyOwnerPassword(currentPassword)) {
+    return res.status(401).json({ error: "Current owner password is incorrect." });
+  }
+  if (!newPassword || newPassword.length < 4) {
+    return res.status(400).json({ error: "New password must be at least 4 characters." });
+  }
+  store.updateOwnerPassword(newPassword);
+  res.json({ ok: true });
 });
 
 // ---------- employees ----------
