@@ -29,13 +29,14 @@ function newId() {
 
 // ---------- config (branches + credentials), stored as key/value rows ----------
 
-let seededPromise = null;
-function ensureSeeded() {
-  if (!seededPromise) seededPromise = doEnsureSeeded();
-  return seededPromise;
-}
-
-async function doEnsureSeeded() {
+// Deliberately NOT memoized here: which Sheet is connected can change
+// mid-lifetime of a warm serverless instance (the owner reconnecting), and a
+// "seeded once, ever" cache in this module would keep serving that fact for
+// the OLD Sheet after a reconnect, skipping tab creation on the new one
+// entirely. server.js already calls this at most once per actual Sheet
+// (tracked by sheet ID there), so re-running the checks below on every call
+// here is safe — each one is a cheap no-op once its Sheet is already set up.
+async function ensureSeeded() {
   await sheetsClient.ensureTab("Config", CONFIG_HEADERS);
   await sheetsClient.ensureTab("Employees", EMPLOYEES_HEADERS);
   await sheetsClient.ensureTab("Drivers", DRIVERS_HEADERS);
