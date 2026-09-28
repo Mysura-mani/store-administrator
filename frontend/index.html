@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8" /><title>Tips Tracker</title></head>
+<body>
+<script>
+  (async () => {
+    const sessionRes = await fetch("/api/session");
+    window.location.href = sessionRes.ok ? "/dashboard.html" : "/login.html";
+  })();
+</script>
+</body>
+</html>

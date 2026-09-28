@@ -1,0 +1,14 @@
+{
+  "name": "tips-tracker",
+  "version": "1.0.0",
+  "description": "Local web app for tracking daily cash/credit tips and splitting them per employee by hours worked.",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0"
+  }
+}

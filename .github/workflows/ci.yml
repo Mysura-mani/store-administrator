@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Syntax-check backend source
+        run: |
+          node --check backend/server.js
+          node --check backend/lib/store.js
+
+      - name: Verify the data layer loads
+        run: node -e "require('./backend/lib/store.js'); console.log('backend/lib/store.js loaded OK')"

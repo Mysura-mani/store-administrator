@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Log in - Tips Tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="center-screen">
+  <div class="card auth-card">
+    <h1>Tips<span style="color:#2563eb">Tracker</span></h1>
+    <p class="subtitle">Choose your branch and enter its password.</p>
+
+    <label>Branch</label>
+    <div class="tabs" id="branch-tabs"></div>
+
+    <form id="login-form">
+      <label for="password">Password</label>
+      <input type="password" id="password" required autofocus />
+      <button type="submit" class="btn-primary btn-full">Log in</button>
+    </form>
+
+    <div class="error-msg" id="error"></div>
+  </div>
+</div>
+<script src="/common.js"></script>
+<script>
+  let selectedBranch = null;
+
+  function renderTabs(branches) {
+    const wrap = document.getElementById("branch-tabs");
+    wrap.innerHTML = branches
+      .map((b, i) => `<button type="button" data-id="${b.id}" class="${i === 0 ? "active" : ""}">${b.name}</button>`)
+      .join("");
+    selectedBranch = branches[0] ? branches[0].id : null;
+    wrap.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        wrap.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        selectedBranch = btn.dataset.id;
+        document.getElementById("error").textContent = "";
+      });
+    });
+  }
+
+  (async () => {
+    const session = await fetch("/api/session");
+    if (session.ok) {
+      window.location.href = "/dashboard.html";
+      return;
+    }
+    const branches = await api("/api/branches");
+    renderTabs(branches);
+  })();
+
+  document.getElementById("login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById("error");
+    errorEl.textContent = "";
+    if (!selectedBranch) {
+      errorEl.textContent = "Choose a branch.";
+      return;
+    }
+    try {
+      await api("/api/login", {
+        method: "POST",
+        body: JSON.stringify({ branchId: selectedBranch, password: document.getElementById("password").value }),
+      });
+      window.location.href = "/dashboard.html";
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+</script>
+</body>
+</html>

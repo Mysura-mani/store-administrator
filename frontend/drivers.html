@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Drivers - Tips Tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="card" style="margin-bottom:20px">
+    <h2>Add driver</h2>
+    <form id="add-form" class="row" style="align-items:flex-end">
+      <div>
+        <label for="new-name">Name</label>
+        <input type="text" id="new-name" required />
+      </div>
+      <button type="submit" class="btn-primary">Add</button>
+    </form>
+    <div class="error-msg" id="add-error"></div>
+  </div>
+
+  <div class="card">
+    <h2>Drivers</h2>
+    <div id="table-wrap"><p class="empty-state">Loading…</p></div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script>
+  async function loadDrivers() {
+    const drivers = await api("/api/drivers?all=1");
+    const wrap = document.getElementById("table-wrap");
+    if (drivers.length === 0) {
+      wrap.innerHTML = '<p class="empty-state">No drivers yet.</p>';
+      return;
+    }
+    const rows = drivers
+      .map(
+        (d) => `
+          <tr data-id="${d.id}">
+            <td><input type="text" class="name-input" value="${d.name}" /></td>
+            <td><span class="badge ${d.active ? "badge-active" : "badge-inactive"}">${d.active ? "Active" : "Inactive"}</span></td>
+            <td class="actions-cell">
+              <button class="btn-secondary save-btn">Save name</button>
+              <button class="btn-secondary toggle-btn">${d.active ? "Deactivate" : "Reactivate"}</button>
+            </td>
+          </tr>
+        `
+      )
+      .join("");
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Name</th><th>Status</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+
+    wrap.querySelectorAll(".save-btn").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const tr = btn.closest("tr");
+        const name = tr.querySelector(".name-input").value.trim();
+        if (!name) return;
+        await api(`/api/drivers/${tr.dataset.id}`, { method: "PUT", body: JSON.stringify({ name }) });
+        await loadDrivers();
+      })
+    );
+    wrap.querySelectorAll(".toggle-btn").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const tr = btn.closest("tr");
+        const isActive = btn.textContent.trim() === "Deactivate";
+        await api(`/api/drivers/${tr.dataset.id}`, { method: "PUT", body: JSON.stringify({ active: !isActive }) });
+        await loadDrivers();
+      })
+    );
+  }
+
+  document.getElementById("add-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById("add-error");
+    errorEl.textContent = "";
+    try {
+      await api("/api/drivers", {
+        method: "POST",
+        body: JSON.stringify({ name: document.getElementById("new-name").value }),
+      });
+      document.getElementById("new-name").value = "";
+      await loadDrivers();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  (async () => {
+    const session = await requireSession("admin");
+    if (!session) return;
+    renderShell(session, "/drivers.html", "delivery");
+    try {
+      await loadDrivers();
+    } catch (err) {
+      document.getElementById("table-wrap").innerHTML = `
+        <p class="empty-state">Couldn't load drivers (${err.message}). <button type="button" class="btn-secondary btn-small" id="retry-btn">Retry</button></p>
+      `;
+      document.getElementById("retry-btn").addEventListener("click", () => window.location.reload());
+    }
+  })();
+</script>
+</body>
+</html>

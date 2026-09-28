@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>New Entry - Tips Tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="card">
+    <h2 id="form-title">Log a day's tips</h2>
+    <p class="subtitle">Enter the day's total tips, then add each employee who worked and their hours. Tips are split automatically by hours worked.</p>
+
+    <form id="entry-form">
+      <input type="hidden" id="entry-id" />
+      <div class="row">
+        <div>
+          <label for="date">Date</label>
+          <input type="date" id="date" required />
+        </div>
+        <div>
+          <label for="cashTips">Total cash tips (&euro;)</label>
+          <input type="number" id="cashTips" min="0" step="0.01" required />
+        </div>
+        <div>
+          <label for="creditTips">Total credit tips (&euro;)</label>
+          <input type="number" id="creditTips" min="0" step="0.01" required />
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top:20px">
+        <label style="margin:0">Employees & hours worked</label>
+        <button type="button" class="btn-secondary" id="add-shift">+ Add employee</button>
+      </div>
+      <div id="shift-rows"></div>
+
+      <div style="display:flex; gap:10px; margin-top:18px">
+        <button type="submit" class="btn-primary">Save entry</button>
+        <button type="button" class="btn-secondary" id="cancel-edit" style="display:none">Cancel edit</button>
+      </div>
+      <div class="error-msg" id="error"></div>
+      <div class="success-msg" id="success"></div>
+    </form>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script>
+  let employees = [];
+
+  function shiftRowHtml(employeeId = "", hours = "") {
+    const options = employees
+      .map((e) => `<option value="${e.id}" ${e.id === employeeId ? "selected" : ""}>${e.name}</option>`)
+      .join("");
+    return `
+      <div class="shift-row">
+        <select class="shift-employee">${options}</select>
+        <input type="number" class="shift-hours" placeholder="Hours" min="0" step="0.25" value="${hours}" />
+        <button type="button" class="btn-danger remove-shift">Remove</button>
+      </div>
+    `;
+  }
+
+  function addShiftRow(employeeId, hours) {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = shiftRowHtml(employeeId, hours);
+    const row = wrap.firstElementChild;
+    row.querySelector(".remove-shift").addEventListener("click", () => row.remove());
+    document.getElementById("shift-rows").appendChild(row);
+  }
+
+  function readShiftRows() {
+    return Array.from(document.querySelectorAll(".shift-row")).map((row) => ({
+      employeeId: row.querySelector(".shift-employee").value,
+      hours: Number(row.querySelector(".shift-hours").value),
+    }));
+  }
+
+  async function loadEmployees() {
+    employees = await api("/api/employees");
+    if (employees.length === 0) {
+      document.getElementById("shift-rows").innerHTML =
+        '<p class="empty-state">No employees yet. Ask an admin to add some on the Employees page.</p>';
+    }
+  }
+
+  async function loadForEdit(id) {
+    const entry = await api(`/api/entries/${id}`);
+    document.getElementById("form-title").textContent = "Edit entry";
+    document.getElementById("entry-id").value = entry.id;
+    document.getElementById("date").value = entry.date;
+    document.getElementById("cashTips").value = entry.cashTips;
+    document.getElementById("creditTips").value = entry.creditTips;
+    document.getElementById("shift-rows").innerHTML = "";
+    entry.shifts.forEach((s) => addShiftRow(s.employeeId, s.hours));
+    document.getElementById("cancel-edit").style.display = "inline-block";
+  }
+
+  (async () => {
+    const session = await requireSession();
+    if (!session) return;
+    renderShell(session, "/entry.html", "tips");
+
+    try {
+      await loadEmployees();
+
+      document.getElementById("date").value = todayStr();
+
+      const params = new URLSearchParams(window.location.search);
+      const editId = params.get("edit");
+      if (editId) {
+        await loadForEdit(editId);
+      } else if (employees.length > 0) {
+        addShiftRow();
+      }
+    } catch (err) {
+      document.getElementById("shift-rows").innerHTML = `
+        <p class="empty-state">Couldn't load this page (${err.message}). <button type="button" class="btn-secondary btn-small" id="retry-btn">Retry</button></p>
+      `;
+      document.getElementById("retry-btn").addEventListener("click", () => window.location.reload());
+    }
+  })();
+
+  document.getElementById("add-shift").addEventListener("click", () => addShiftRow());
+
+  document.getElementById("cancel-edit").addEventListener("click", () => {
+    window.location.href = "/entry.html";
+  });
+
+  document.getElementById("entry-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById("error");
+    const successEl = document.getElementById("success");
+    errorEl.textContent = "";
+    successEl.textContent = "";
+
+    const payload = {
+      date: document.getElementById("date").value,
+      cashTips: Number(document.getElementById("cashTips").value),
+      creditTips: Number(document.getElementById("creditTips").value),
+      shifts: readShiftRows(),
+    };
+
+    const id = document.getElementById("entry-id").value;
+
+    try {
+      if (id) {
+        await api(`/api/entries/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+        successEl.textContent = "Entry updated.";
+      } else {
+        await api("/api/entries", { method: "POST", body: JSON.stringify(payload) });
+        successEl.textContent = "Entry saved.";
+        e.target.reset();
+        document.getElementById("date").value = todayStr();
+        document.getElementById("shift-rows").innerHTML = "";
+        if (employees.length > 0) addShiftRow();
+      }
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+</script>
+</body>
+</html>

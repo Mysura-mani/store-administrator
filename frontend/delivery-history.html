@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Delivery History - Tips Tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="card">
+    <div class="section-title">
+      <h2>Pay by driver</h2>
+      <div class="tabs" style="width:400px; margin:0">
+        <button type="button" data-mode="day">Daily</button>
+        <button type="button" data-mode="week" class="active">Weekly</button>
+        <button type="button" data-mode="month">Monthly</button>
+        <button type="button" data-mode="quarter">Quarterly</button>
+      </div>
+    </div>
+
+    <div class="period-nav">
+      <button class="btn-secondary" id="prev-btn">&larr; Prev</button>
+      <div class="period-label" id="period-label">&nbsp;</div>
+      <button class="btn-secondary" id="next-btn">Next &rarr;</button>
+    </div>
+
+    <div id="table-wrap"><p class="empty-state">Loading&hellip;</p></div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script>
+  let mode = "week";
+  let anchor = todayStr();
+  let isAdmin = false;
+
+  function renderTable(history) {
+    document.getElementById("period-label").textContent = history.label;
+    const wrap = document.getElementById("table-wrap");
+
+    if (history.rows.length === 0) {
+      wrap.innerHTML = '<p class="empty-state">No entries in this period.</p>';
+      return;
+    }
+
+    const bodyRows = history.rows
+      .map((row) => {
+        const dayRows = row.days
+          .map((d) => {
+            const zoneStr = d.zoneCounts.map((c, i) => `Z${i + 1}:${c}`).join(" ");
+            const noteStr = d.note ? ` — ${d.note}` : "";
+            const payClass = d.isSolo ? (d.topUpApplied ? "pay-floor" : "pay-above") : "";
+            const cashStr =
+              d.cashOrderCount > 0 || d.cashOrderValue > 0 ? `${d.cashOrderCount} / ${formatMoney(d.cashOrderValue)}` : "—";
+            return `
+              <tr class="day-subtable" data-owner="${row.driverId}" style="display:none">
+                <td>${d.date}<br /><span class="hint">${zoneStr}${noteStr}</span></td>
+                <td>${d.hours}h</td>
+                <td>${formatMoney(d.basePay)}</td>
+                <td>${formatMoney(d.deliveryPay)}</td>
+                <td>${formatMoney(d.tips)}</td>
+                <td class="${payClass}">${formatMoney(d.finalPay)}</td>
+                <td>${cashStr} ${isAdmin ? `<button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}">Edit</button>` : ""}</td>
+              </tr>
+            `;
+          })
+          .join("");
+        const cashTotalStr =
+          row.cashOrderCount > 0 || row.cashOrderValue > 0
+            ? `${row.cashOrderCount} / ${formatMoney(row.cashOrderValue)}`
+            : "—";
+        return `
+          <tr>
+            <td><button class="expand-toggle" data-target="${row.driverId}">&#9656;</button> ${row.name}</td>
+            <td>${row.hours}h</td>
+            <td>${formatMoney(row.basePay)}</td>
+            <td>${formatMoney(row.deliveryPay)}</td>
+            <td>${formatMoney(row.tips)}</td>
+            <td>${formatMoney(row.finalPay)}</td>
+            <td>${cashTotalStr}</td>
+          </tr>
+          ${dayRows}
+        `;
+      })
+      .join("");
+
+    wrap.innerHTML = `
+      <table>
+        <thead>
+          <tr><th>Driver</th><th>Hours</th><th>Base Pay</th><th>Delivery Pay</th><th>Tips</th><th>Total Pay</th><th>Cash to return (#/&euro;)</th></tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot>
+          <tr>
+            <td>Total (${history.entryCount} ${history.entryCount === 1 ? "day" : "days"})</td>
+            <td>${history.totals.hours}h</td>
+            <td>${formatMoney(history.totals.basePay)}</td>
+            <td>${formatMoney(history.totals.deliveryPay)}</td>
+            <td>${formatMoney(history.totals.tips)}</td>
+            <td>${formatMoney(history.totals.finalPay)}</td>
+            <td>${history.totals.cashOrderCount} / ${formatMoney(history.totals.cashOrderValue)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    `;
+
+    wrap.querySelectorAll(".expand-toggle").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.target;
+        const expanded = btn.textContent.includes("▾");
+        btn.innerHTML = expanded ? "&#9656;" : "&#9662;";
+        wrap.querySelectorAll(`tr[data-owner="${id}"]`).forEach((tr) => {
+          tr.style.display = expanded ? "none" : "table-row";
+        });
+      });
+    });
+
+    wrap.querySelectorAll(".edit-day-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        window.location.href = `/delivery-entry.html?edit=${btn.dataset.id}`;
+      });
+    });
+  }
+
+  async function load() {
+    try {
+      const qs = new URLSearchParams({ mode, anchor });
+      const history = await api(`/api/delivery-history?${qs.toString()}`);
+      anchor = history.anchor;
+      renderTable(history);
+      document.getElementById("prev-btn").dataset.anchor = history.prevAnchor;
+      document.getElementById("next-btn").dataset.anchor = history.nextAnchor;
+    } catch (err) {
+      document.getElementById("table-wrap").innerHTML = `
+        <p class="empty-state">Couldn't load this period (${err.message}). <button class="btn-secondary btn-small" id="retry-btn">Retry</button></p>
+      `;
+      document.getElementById("retry-btn").addEventListener("click", load);
+    }
+  }
+
+  document.querySelectorAll(".tabs button[data-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      mode = btn.dataset.mode;
+      anchor = todayStr();
+      document.querySelectorAll(".tabs button[data-mode]").forEach((b) => b.classList.toggle("active", b === btn));
+      load();
+    });
+  });
+  document.getElementById("prev-btn").addEventListener("click", (e) => {
+    anchor = e.currentTarget.dataset.anchor;
+    load();
+  });
+  document.getElementById("next-btn").addEventListener("click", (e) => {
+    anchor = e.currentTarget.dataset.anchor;
+    load();
+  });
+
+  (async () => {
+    const session = await requireSession();
+    if (!session) return;
+    isAdmin = session.role === "admin";
+    renderShell(session, "/delivery-history.html", "delivery");
+    await load();
+  })();
+</script>
+</body>
+</html>

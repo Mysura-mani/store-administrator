@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Delivery Payout - Tips Tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="card">
+    <h2 id="form-title">Log a day's deliveries</h2>
+    <p class="subtitle">Say how many drivers worked, then fill in each driver's hours, deliveries, and any cash orders they took. Each driver can be saved on their own as soon as their shift is done — you don't need everyone's details at once.</p>
+
+    <form id="delivery-form">
+      <input type="hidden" id="entry-id" />
+      <div class="row" style="max-width:420px">
+        <div>
+          <label for="date">Date</label>
+          <input type="date" id="date" required />
+        </div>
+        <div>
+          <label for="driver-count">Number of drivers today</label>
+          <input type="number" id="driver-count" min="1" step="1" value="1" />
+        </div>
+      </div>
+
+      <div id="driver-cards" style="margin-top:20px"></div>
+
+      <div style="display:flex; align-items:center; gap:14px; margin-top:8px">
+        <button type="submit" class="btn-primary">Save entry</button>
+        <button type="button" class="btn-secondary" id="cancel-edit" style="display:none">Cancel edit</button>
+        <span id="global-status"></span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script>
+  let drivers = [];
+  let rates = null;
+
+  function driverOptionsHtml(selectedId) {
+    return drivers.map((d) => `<option value="${d.id}" ${d.id === selectedId ? "selected" : ""}>${d.name}</option>`).join("");
+  }
+
+  function zoneInputsHtml(zoneCounts) {
+    return rates.zoneRates
+      .map(
+        (rate, i) => `
+        <div>
+          <label>Zone ${i + 1} (${formatMoney(rate)})</label>
+          <input type="number" class="d-zone" data-zone="${i}" min="0" step="1" value="${zoneCounts[i] || ""}" placeholder="0" />
+        </div>
+      `
+      )
+      .join("");
+  }
+
+  function createDriverCard(index, data = {}) {
+    const { driverId = "", hours = "", zoneCounts = [0, 0, 0, 0], cashOrders = [], tips = "", note = "" } = data;
+    const card = document.createElement("div");
+    card.className = "driver-card";
+    card.innerHTML = `
+      <div class="driver-card-header">Driver ${index + 1}</div>
+      <div class="row">
+        <div>
+          <label>Driver</label>
+          <select class="d-driver">${driverOptionsHtml(driverId)}</select>
+        </div>
+        <div>
+          <label>Hours</label>
+          <input type="number" class="d-hours" min="0" step="0.25" value="${hours}" placeholder="Hours" />
+        </div>
+      </div>
+      <div class="row zone-row">${zoneInputsHtml(zoneCounts)}</div>
+      <div class="tips-block">
+        <label style="margin-top:0">Tips</label>
+        <p class="hint" style="margin-top:-2px; margin-bottom:10px">Added on top of pay whether or not the minimum-wage top-up applied.</p>
+        <div style="max-width:180px">
+          <label>Tips (&euro;)</label>
+          <input type="number" class="d-tips" min="0" step="0.01" value="${tips || ""}" placeholder="0.00" />
+        </div>
+      </div>
+      <div class="driver-total-row">
+        <span>Total pay</span>
+        <span class="driver-total">&mdash;</span>
+      </div>
+      <div class="cash-orders-block">
+        <label style="margin-top:0">Cash collection orders</label>
+        <p class="hint" style="margin-top:-2px; margin-bottom:10px">Cash the driver collected from customers that they owe back — not part of their pay.</p>
+        <div style="max-width:220px">
+          <label>Number of cash orders</label>
+          <input type="number" class="d-cash-count" min="0" step="1" value="${cashOrders.length || ""}" placeholder="0" />
+        </div>
+        <div style="max-width:420px">
+          <label>Note (optional)</label>
+          <input type="text" class="d-note" value="${note.replace(/"/g, "&quot;")}" placeholder="Any notes about these cash orders..." maxlength="500" />
+        </div>
+        <div class="cash-order-values"></div>
+        <p class="hint">Cash to return: <strong class="cash-return-amount">&euro;0.00</strong></p>
+      </div>
+      <div class="driver-save-row">
+        <button type="button" class="btn-secondary driver-save-btn">Save this driver</button>
+        <span class="driver-save-status"></span>
+      </div>
+    `;
+
+    card.querySelectorAll(".d-hours, .d-zone, .d-tips").forEach((input) => input.addEventListener("input", recalcAllTotals));
+    const cashCountInput = card.querySelector(".d-cash-count");
+    cashCountInput.addEventListener("input", () => {
+      renderCashOrderInputs(card, Math.max(0, Math.floor(Number(cashCountInput.value) || 0)));
+    });
+    card.querySelector(".driver-save-btn").addEventListener("click", () => saveEntry(card.querySelector(".driver-save-status")));
+
+    renderCashOrderInputs(card, cashOrders.length, cashOrders);
+    return card;
+  }
+
+  function renderCashOrderInputs(card, count, existingValues = []) {
+    const wrap = card.querySelector(".cash-order-values");
+    const current = Array.from(wrap.querySelectorAll(".cash-order-value-input")).map((i) => i.value);
+    const values = existingValues.length ? existingValues : current;
+    wrap.innerHTML = "";
+    for (let i = 0; i < count; i++) {
+      const box = document.createElement("div");
+      box.className = "cash-order-box";
+      box.innerHTML = `
+        <label>Order ${i + 1} (&euro;)</label>
+        <input type="number" class="cash-order-value-input" min="0" step="0.01" value="${values[i] || ""}" placeholder="0.00" />
+      `;
+      box.querySelector("input").addEventListener("input", () => recalcCashReturn(card));
+      wrap.appendChild(box);
+    }
+    recalcCashReturn(card);
+  }
+
+  function recalcCashReturn(card) {
+    const total = Array.from(card.querySelectorAll(".cash-order-value-input")).reduce(
+      (sum, input) => sum + (Number(input.value) || 0),
+      0
+    );
+    card.querySelector(".cash-return-amount").textContent = formatMoney(total);
+  }
+
+  function recalcAllTotals() {
+    const isSolo = Number(document.getElementById("driver-count").value) === 1;
+    document.querySelectorAll(".driver-card").forEach((card) => {
+      const hours = Number(card.querySelector(".d-hours").value) || 0;
+      const zoneCounts = Array.from(card.querySelectorAll(".d-zone")).map((input) => Number(input.value) || 0);
+      const totalEl = card.querySelector(".driver-total");
+      totalEl.classList.remove("pay-floor", "pay-above");
+      if (!rates || hours <= 0) {
+        totalEl.textContent = "—";
+        return;
+      }
+      const tips = Number(card.querySelector(".d-tips").value) || 0;
+      const basePay = hours * rates.driverHourlyRate;
+      const deliveryPay = zoneCounts.reduce((sum, c, i) => sum + c * rates.zoneRates[i], 0);
+      const rawTotal = basePay + deliveryPay;
+      const minWageFloor = hours * rates.minimumWage;
+      const topUpApplied = isSolo && minWageFloor > rawTotal;
+      const payBeforeTips = topUpApplied ? minWageFloor : rawTotal;
+      totalEl.textContent = formatMoney(payBeforeTips + tips);
+      if (isSolo) totalEl.classList.add(topUpApplied ? "pay-floor" : "pay-above");
+    });
+  }
+
+  function syncDriverCount(count) {
+    const container = document.getElementById("driver-cards");
+    const cards = Array.from(container.children);
+    if (count > cards.length) {
+      for (let i = cards.length; i < count; i++) container.appendChild(createDriverCard(i));
+    } else if (count < cards.length) {
+      for (let i = cards.length - 1; i >= count; i--) container.removeChild(container.children[i]);
+    }
+    recalcAllTotals();
+  }
+
+  function readDriverCards() {
+    return Array.from(document.querySelectorAll(".driver-card")).map((card) => ({
+      driverId: card.querySelector(".d-driver").value,
+      hours: Number(card.querySelector(".d-hours").value),
+      zoneCounts: Array.from(card.querySelectorAll(".d-zone")).map((input) => Number(input.value) || 0),
+      cashOrders: Array.from(card.querySelectorAll(".cash-order-value-input")).map((input) => Number(input.value) || 0),
+      tips: Number(card.querySelector(".d-tips").value) || 0,
+      note: card.querySelector(".d-note").value || "",
+    }));
+  }
+
+  function setStatus(el, message, isError) {
+    el.textContent = message;
+    el.className = isError ? "error-msg" : "success-msg";
+  }
+
+  // Saves whatever is currently in the form. Used by both the per-driver
+  // "Save this driver" buttons and the main "Save entry" button, so a driver
+  // who has already finished can be saved right away while others are still
+  // out on shift — no need to wait for everyone before saving anything.
+  async function saveEntry(statusEl) {
+    statusEl.textContent = "";
+    const payload = {
+      date: document.getElementById("date").value,
+      driverCount: Number(document.getElementById("driver-count").value) || 0,
+      drivers: readDriverCards(),
+    };
+    const id = document.getElementById("entry-id").value;
+    try {
+      if (id) {
+        await api(`/api/delivery-entries/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+      } else {
+        const result = await api("/api/delivery-entries", { method: "POST", body: JSON.stringify(payload) });
+        document.getElementById("entry-id").value = result.id;
+        document.getElementById("cancel-edit").style.display = "inline-block";
+      }
+      setStatus(statusEl, "Saved.", false);
+    } catch (err) {
+      setStatus(statusEl, err.message, true);
+    }
+  }
+
+  async function loadDrivers() {
+    drivers = await api("/api/drivers");
+    rates = await api("/api/rates");
+    if (drivers.length === 0) {
+      document.getElementById("driver-cards").innerHTML =
+        '<p class="empty-state">No drivers yet. Ask an admin to add some on the Drivers page.</p>';
+      document.getElementById("driver-count").disabled = true;
+    }
+  }
+
+  async function loadForEdit(id) {
+    const entry = await api(`/api/delivery-entries/${id}`);
+    document.getElementById("form-title").textContent = "Edit delivery entry";
+    document.getElementById("entry-id").value = entry.id;
+    document.getElementById("date").value = entry.date;
+    const count = entry.driverCount || entry.drivers.length || 1;
+    document.getElementById("driver-count").value = count;
+    document.getElementById("driver-cards").innerHTML = "";
+    for (let i = 0; i < count; i++) {
+      document.getElementById("driver-cards").appendChild(createDriverCard(i, entry.drivers[i] || {}));
+    }
+    recalcAllTotals();
+    document.getElementById("cancel-edit").style.display = "inline-block";
+  }
+
+  // Looks up whether the selected date already has a (possibly partial)
+  // entry saved and loads it, so a driver saved earlier in the day is still
+  // there when someone comes back to add the next driver later.
+  async function loadForDate(date) {
+    if (!date || drivers.length === 0) return;
+    try {
+      const existing = await api(`/api/delivery-entries?from=${date}&to=${date}`);
+      if (existing.length > 0) {
+        await loadForEdit(existing[0].id);
+      } else {
+        document.getElementById("entry-id").value = "";
+        document.getElementById("form-title").textContent = "Log a day's deliveries";
+        document.getElementById("cancel-edit").style.display = "none";
+        document.getElementById("driver-count").value = 1;
+        document.getElementById("driver-cards").innerHTML = "";
+        syncDriverCount(1);
+      }
+    } catch (err) {
+      /* leave the form as-is on a transient error */
+    }
+  }
+
+  (async () => {
+    const session = await requireSession();
+    if (!session) return;
+    renderShell(session, "/delivery-entry.html", "delivery");
+
+    try {
+      await loadDrivers();
+
+      const params = new URLSearchParams(window.location.search);
+      const editId = params.get("edit");
+      if (editId) {
+        await loadForEdit(editId);
+      } else {
+        document.getElementById("date").value = todayStr();
+        await loadForDate(todayStr());
+      }
+    } catch (err) {
+      document.getElementById("driver-cards").innerHTML = `
+        <p class="empty-state">Couldn't load this page (${err.message}). <button type="button" class="btn-secondary btn-small" id="retry-btn">Retry</button></p>
+      `;
+      document.getElementById("retry-btn").addEventListener("click", () => window.location.reload());
+    }
+  })();
+
+  document.getElementById("driver-count").addEventListener("input", (e) => {
+    syncDriverCount(Math.max(0, Math.floor(Number(e.target.value) || 0)));
+  });
+
+  document.getElementById("date").addEventListener("change", (e) => loadForDate(e.target.value));
+
+  document.getElementById("cancel-edit").addEventListener("click", () => {
+    window.location.href = "/delivery-entry.html";
+  });
+
+  document.getElementById("delivery-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    saveEntry(document.getElementById("global-status"));
+  });
+</script>
+</body>
+</html>

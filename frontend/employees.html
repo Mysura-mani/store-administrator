@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Employees - Tips Tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="card" style="margin-bottom:20px">
+    <h2>Add employee</h2>
+    <form id="add-form" class="row" style="align-items:flex-end">
+      <div>
+        <label for="new-name">Name</label>
+        <input type="text" id="new-name" required />
+      </div>
+      <button type="submit" class="btn-primary">Add</button>
+    </form>
+    <div class="error-msg" id="add-error"></div>
+  </div>
+
+  <div class="card">
+    <h2>Employees</h2>
+    <div id="table-wrap"><p class="empty-state">Loading…</p></div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script>
+  async function loadEmployees() {
+    const employees = await api("/api/employees?all=1");
+    const wrap = document.getElementById("table-wrap");
+    if (employees.length === 0) {
+      wrap.innerHTML = '<p class="empty-state">No employees yet.</p>';
+      return;
+    }
+    const rows = employees
+      .map(
+        (e) => `
+          <tr data-id="${e.id}">
+            <td><input type="text" class="name-input" value="${e.name}" /></td>
+            <td><span class="badge ${e.active ? "badge-active" : "badge-inactive"}">${e.active ? "Active" : "Inactive"}</span></td>
+            <td class="actions-cell">
+              <button class="btn-secondary save-btn">Save name</button>
+              <button class="btn-secondary toggle-btn">${e.active ? "Deactivate" : "Reactivate"}</button>
+            </td>
+          </tr>
+        `
+      )
+      .join("");
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Name</th><th>Status</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+
+    wrap.querySelectorAll(".save-btn").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const tr = btn.closest("tr");
+        const name = tr.querySelector(".name-input").value.trim();
+        if (!name) return;
+        await api(`/api/employees/${tr.dataset.id}`, { method: "PUT", body: JSON.stringify({ name }) });
+        await loadEmployees();
+      })
+    );
+    wrap.querySelectorAll(".toggle-btn").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const tr = btn.closest("tr");
+        const isActive = btn.textContent.trim() === "Deactivate";
+        await api(`/api/employees/${tr.dataset.id}`, { method: "PUT", body: JSON.stringify({ active: !isActive }) });
+        await loadEmployees();
+      })
+    );
+  }
+
+  document.getElementById("add-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById("add-error");
+    errorEl.textContent = "";
+    try {
+      await api("/api/employees", {
+        method: "POST",
+        body: JSON.stringify({ name: document.getElementById("new-name").value }),
+      });
+      document.getElementById("new-name").value = "";
+      await loadEmployees();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  (async () => {
+    const session = await requireSession("admin");
+    if (!session) return;
+    renderShell(session, "/employees.html", "tips");
+    try {
+      await loadEmployees();
+    } catch (err) {
+      document.getElementById("table-wrap").innerHTML = `
+        <p class="empty-state">Couldn't load employees (${err.message}). <button type="button" class="btn-secondary btn-small" id="retry-btn">Retry</button></p>
+      `;
+      document.getElementById("retry-btn").addEventListener("click", () => window.location.reload());
+    }
+  })();
+</script>
+</body>
+</html>

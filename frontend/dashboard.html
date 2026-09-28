@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard - Tips Tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar-simple" id="topbar-simple"></div>
+
+  <div class="mode-chooser">
+    <a class="mode-card" href="/entry.html">
+      <div class="mode-icon">💶</div>
+      <h2>Tip Sheet</h2>
+      <p class="subtitle">Log daily cash &amp; credit tips and see weekly/monthly totals per employee.</p>
+    </a>
+    <a class="mode-card" href="/delivery-entry.html">
+      <div class="mode-icon">🛵</div>
+      <h2>Delivery</h2>
+      <p class="subtitle">Log driver hours &amp; deliveries and see weekly/monthly pay per driver.</p>
+    </a>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script>
+  (async () => {
+    const session = await requireSession();
+    if (!session) return;
+
+    const who = session.role === "admin" ? `Admin (${session.branchName || session.branchId})` : `Staff (${session.branchName || session.branchId})`;
+    document.getElementById("topbar-simple").innerHTML = `
+      <div class="brand">Tips<span>Tracker</span> <span class="branch-tag">${session.branchName || session.branchId}</span></div>
+      <div class="user-pill">
+        <span>${who}</span>
+        <button class="btn-secondary" id="logout-btn">Log out</button>
+      </div>
+    `;
+    document.getElementById("logout-btn").addEventListener("click", async () => {
+      await api("/api/logout", { method: "POST" });
+      window.location.href = "/login.html";
+    });
+  })();
+</script>
+</body>
+</html>
