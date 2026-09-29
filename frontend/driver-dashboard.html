@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Pay - Tips Tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar" id="topbar">
+    <div class="brand"><a href="/driver-dashboard.html">Tips<span>Tracker</span></a></div>
+    <div class="user-pill">
+      <span id="driver-name-pill"></span>
+      <button class="btn-secondary" id="logout-btn">Log out</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">
+      <h2>My weekly pay</h2>
+    </div>
+
+    <div class="period-nav">
+      <button class="btn-secondary" id="prev-btn">&larr; Prev</button>
+      <div class="period-label" id="period-label">&nbsp;</div>
+      <button class="btn-secondary" id="next-btn">Next &rarr;</button>
+    </div>
+
+    <div id="summary-wrap"></div>
+    <div id="days-wrap"><p class="empty-state">Loading&hellip;</p></div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script>
+  let anchor = todayStr();
+
+  function renderView(history) {
+    document.getElementById("period-label").textContent = history.label;
+    const row = history.rows[0];
+
+    if (!row) {
+      document.getElementById("summary-wrap").innerHTML = "";
+      document.getElementById("days-wrap").innerHTML = '<p class="empty-state">No entries in this week.</p>';
+      return;
+    }
+
+    document.getElementById("summary-wrap").innerHTML = `
+      <table style="margin-bottom:16px">
+        <thead><tr><th>Hours</th><th>Base pay</th><th>Delivery pay</th><th>Tips</th><th>Total pay</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>${row.hours}h</td>
+            <td>${formatMoney(row.basePay)}</td>
+            <td>${formatMoney(row.deliveryPay)}</td>
+            <td>${formatMoney(row.tips)}</td>
+            <td><strong>${formatMoney(row.finalPay)}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+
+    const dayRows = row.days
+      .map((d) => {
+        const zoneStr = d.zoneCounts.map((c, i) => `Z${i + 1}:${c}`).join(" ");
+        const noteStr = d.note ? ` — ${escapeHtml(d.note)}` : "";
+        const payClass = d.isSolo ? (d.topUpApplied ? "pay-floor" : "pay-above") : "";
+        return `
+          <tr>
+            <td>${d.date}<br /><span class="hint">${zoneStr}${noteStr}</span></td>
+            <td>${d.hours}h</td>
+            <td>${formatMoney(d.basePay)}</td>
+            <td>${formatMoney(d.deliveryPay)}</td>
+            <td>${formatMoney(d.tips)}</td>
+            <td class="${payClass}">${formatMoney(d.finalPay)}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    document.getElementById("days-wrap").innerHTML = `
+      <table>
+        <thead><tr><th>Date</th><th>Hours</th><th>Base pay</th><th>Delivery pay</th><th>Tips</th><th>Total pay</th></tr></thead>
+        <tbody>${dayRows}</tbody>
+      </table>
+    `;
+  }
+
+  async function load() {
+    try {
+      const qs = new URLSearchParams({ anchor });
+      const history = await api(`/api/driver/history?${qs.toString()}`);
+      anchor = history.anchor;
+      renderView(history);
+      document.getElementById("prev-btn").dataset.anchor = history.prevAnchor;
+      document.getElementById("next-btn").dataset.anchor = history.nextAnchor;
+    } catch (err) {
+      document.getElementById("days-wrap").innerHTML = `<p class="empty-state">Couldn't load this week (${err.message}).</p>`;
+    }
+  }
+
+  document.getElementById("prev-btn").addEventListener("click", () => {
+    anchor = document.getElementById("prev-btn").dataset.anchor;
+    load();
+  });
+  document.getElementById("next-btn").addEventListener("click", () => {
+    anchor = document.getElementById("next-btn").dataset.anchor;
+    load();
+  });
+
+  document.getElementById("logout-btn").addEventListener("click", async () => {
+    await api("/api/logout", { method: "POST" });
+    window.location.href = "/login.html";
+  });
+
+  (async () => {
+    try {
+      const session = await api("/api/session");
+      if (session.role !== "driver") {
+        window.location.href = "/login.html";
+        return;
+      }
+      document.getElementById("driver-name-pill").textContent = session.name || "";
+    } catch (err) {
+      window.location.href = "/login.html";
+      return;
+    }
+    await load();
+  })();
+</script>
+</body>
+</html>

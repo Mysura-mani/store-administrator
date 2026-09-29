@@ -179,6 +179,40 @@ function confirmDialog(message) {
   });
 }
 
+// Same reasoning as confirmDialog() above — native prompt() is unreliable in
+// some browser setups. Returns the entered string, or null if cancelled.
+function promptDialog(message, { inputType = "text", placeholder = "" } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <p style="margin-top:0">${escapeHtml(message)}</p>
+        <input type="${escapeHtml(inputType)}" id="prompt-dialog-input" placeholder="${escapeHtml(placeholder)}" />
+        <div style="display:flex; gap:10px; margin-top:14px">
+          <button type="button" class="btn-primary" id="prompt-dialog-ok">OK</button>
+          <button type="button" class="btn-secondary" id="prompt-dialog-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const input = document.getElementById("prompt-dialog-input");
+    input.focus();
+    const finish = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) finish(null);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") finish(input.value);
+    });
+    document.getElementById("prompt-dialog-ok").addEventListener("click", () => finish(input.value));
+    document.getElementById("prompt-dialog-cancel").addEventListener("click", () => finish(null));
+  });
+}
+
 function formatMoney(n) {
   return `€${Number(n).toFixed(2)}`;
 }

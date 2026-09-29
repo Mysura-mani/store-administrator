@@ -196,16 +196,28 @@ function ah(fn) {
 
 // ---------- helpers ----------
 
+// Branch staff/admin only — explicitly excludes "driver" sessions, which
+// also carry a branchId but must never reach staff/admin routes (employees,
+// entries, rates, other drivers' data, ...). See requireDriver below.
 function requireAuth(req, res, next) {
-  if (!req.session.role || !req.session.branchId) return res.status(401).json({ error: "not_authenticated" });
+  if (
+    (req.session.role !== "staff" && req.session.role !== "admin") ||
+    !req.session.branchId
+  ) {
+    return res.status(401).json({ error: "not_authenticated" });
+  }
   next();
 }
 
-// Like requireAuth, but also accepts the owner role, which has no branchId.
+// Accepts any logged-in role (owner, staff/admin, or driver) — used only by
+// routes like GET /api/session and POST /api/logout that every role needs,
+// never by anything that returns or changes actual branch data.
 function requireAnyAuth(req, res, next) {
-  if (!req.session.role) return res.status(401).json({ error: "not_authenticated" });
-  if (req.session.role !== "owner" && !req.session.branchId) return res.status(401).json({ error: "not_authenticated" });
-  next();
+  if (req.session.role === "owner") return next();
+  if ((req.session.role === "staff" || req.session.role === "admin" || req.session.role === "driver") && req.session.branchId) {
+    return next();
+  }
+  return res.status(401).json({ error: "not_authenticated" });
 }
 
 function requireAdmin(req, res, next) {
@@ -218,6 +230,15 @@ function requireAdmin(req, res, next) {
 function requireOwner(req, res, next) {
   if (req.session.role !== "owner") {
     return res.status(403).json({ error: "Owner access is required for this action." });
+  }
+  next();
+}
+
+// A driver's own restricted session — read-only access to their own
+// history, nothing else.
+function requireDriver(req, res, next) {
+  if (req.session.role !== "driver" || !req.session.branchId || !req.session.driverId) {
+    return res.status(401).json({ error: "not_authenticated" });
   }
   next();
 }
@@ -255,6 +276,24 @@ app.post("/api/login", authLimiter, ah(async (req, res) => {
   res.json({ ok: true, role: "staff", branchId });
 }));
 
+// A driver logs in by username alone (picked from the login page's "Others"
+// option) — there's no branch to choose first, since the app doesn't know
+// which branch a driver belongs to until their username resolves one.
+app.post("/api/driver-login", authLimiter, ah(async (req, res) => {
+  const { username, password } = req.body || {};
+  const result = await store.verifyDriverLogin(username, password);
+  if (!result) {
+    return res.status(401).json({ error: "Incorrect username or password." });
+  }
+  setSession(req, res, { role: "driver", branchId: result.branchId, driverId: result.driverId, name: result.name });
+  res.json({ ok: true, role: "driver" });
+}));
+
+app.get("/api/driver/history", requireDriver, ah(async (req, res) => {
+  const anchor = /^\d{4}-\d{2}-\d{2}$/.test(req.query.anchor || "") ? req.query.anchor : store.formatDateStr(new Date());
+  res.json(await store.getDriverOwnHistory({ branchId: req.session.branchId, driverId: req.session.driverId, anchor }));
+}));
+
 app.post("/api/elevate-admin", authLimiter, requireAuth, ah(async (req, res) => {
   const { password } = req.body || {};
   if (!(await store.verifyAdminPassword(req.session.branchId, password))) {
@@ -272,6 +311,9 @@ app.post("/api/logout", (req, res) => {
 app.get("/api/session", requireAnyAuth, ah(async (req, res) => {
   if (req.session.role === "owner") {
     return res.json({ role: "owner" });
+  }
+  if (req.session.role === "driver") {
+    return res.json({ role: "driver", branchId: req.session.branchId, driverId: req.session.driverId, name: req.session.name });
   }
   const branches = await store.getBranches();
   const branch = branches.find((b) => b.id === req.session.branchId);
@@ -645,16 +687,24 @@ app.get("/api/drivers", requireAuth, ah(async (req, res) => {
 }));
 
 app.post("/api/drivers", requireAuth, requireAdmin, ah(async (req, res) => {
-  const { name } = req.body || {};
+  const { name, username, password } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: "Driver name is required." });
-  res.status(201).json(await store.addDriver(req.session.branchId, name));
+  try {
+    res.status(201).json(await store.addDriver(req.session.branchId, name, username, password));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 }));
 
 app.put("/api/drivers/:id", requireAuth, requireAdmin, ah(async (req, res) => {
-  const { name, active } = req.body || {};
-  const updated = await store.updateDriver(req.session.branchId, req.params.id, { name, active });
-  if (!updated) return res.status(404).json({ error: "Driver not found." });
-  res.json(updated);
+  const { name, active, username, password } = req.body || {};
+  try {
+    const updated = await store.updateDriver(req.session.branchId, req.params.id, { name, active, username, password });
+    if (!updated) return res.status(404).json({ error: "Driver not found." });
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 }));
 
 app.delete("/api/drivers/:id", requireAuth, requireAdmin, ah(async (req, res) => {

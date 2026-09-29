@@ -47,6 +47,19 @@
           </div>
         </div>
 
+        <div id="driver-username-block" style="display:none">
+          <label for="driver-username">Username</label>
+          <div class="input-with-icon">
+            <span class="field-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8" r="3.5" />
+                <path d="M5 20c0-3.87 3.13-6 7-6s7 2.13 7 6" />
+              </svg>
+            </span>
+            <input type="text" id="driver-username" autocomplete="username" />
+          </div>
+        </div>
+
         <div id="password-block">
           <label for="password">Password</label>
           <div class="input-with-icon">
@@ -98,11 +111,18 @@
     return document.getElementById("store-select").value === "__owner__";
   }
 
+  function isOthersSelected() {
+    return document.getElementById("store-select").value === "__others__";
+  }
+
   function populateSelect() {
     const select = document.getElementById("store-select");
     const branchOptions = branches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join("");
-    select.innerHTML = `${branchOptions}<option value="__owner__">Owner</option>`;
-    select.addEventListener("change", updateGoogleVisibility);
+    select.innerHTML = `${branchOptions}<option value="__owner__">Owner</option><option value="__others__">Others</option>`;
+    select.addEventListener("change", () => {
+      updateGoogleVisibility();
+      updateFieldVisibility();
+    });
 
     // No branches yet (a fresh setup, before the owner has created any) —
     // there's nothing to actually choose between, so skip the dropdown and
@@ -118,8 +138,17 @@
     document.getElementById("google-block").style.display = showGoogle ? "block" : "none";
   }
 
+  // "Others" (a driver logging in) uses a username + password pair instead
+  // of the branch/owner flow's password-only field.
+  function updateFieldVisibility() {
+    const others = isOthersSelected();
+    document.getElementById("driver-username-block").style.display = others ? "block" : "none";
+  }
+
   function redirectForRole(role) {
-    window.location.href = role === "owner" ? "/owner-dashboard.html" : "/dashboard.html";
+    if (role === "owner") window.location.href = "/owner-dashboard.html";
+    else if (role === "driver") window.location.href = "/driver-dashboard.html";
+    else window.location.href = "/dashboard.html";
   }
 
   const GOOGLE_ERRORS = {
@@ -159,6 +188,13 @@
     try {
       if (isOwnerSelected()) {
         const result = await api("/api/owner-login", { method: "POST", body: JSON.stringify({ password }) });
+        redirectForRole(result.role);
+      } else if (isOthersSelected()) {
+        const username = document.getElementById("driver-username").value;
+        const result = await api("/api/driver-login", {
+          method: "POST",
+          body: JSON.stringify({ username, password }),
+        });
         redirectForRole(result.role);
       } else {
         const branchId = document.getElementById("store-select").value;

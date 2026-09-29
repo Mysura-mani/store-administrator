@@ -15,7 +15,10 @@ const DEFAULT_RATES = {
 
 const CONFIG_HEADERS = ["key", "value"];
 const EMPLOYEES_HEADERS = ["id", "branchId", "name", "active"];
-const DRIVERS_HEADERS = ["id", "branchId", "name", "active"];
+// username/passwordHash let a driver log in on their own (see
+// verifyDriverPassword()) to a read-only view of their own history —
+// separate from the branch staff/admin accounts.
+const DRIVERS_HEADERS = ["id", "branchId", "name", "active", "username", "passwordHash"];
 // One plain row per employee-shift / driver-day (not one JSON-blob row per
 // day's entry) so the Sheet itself stays readable to a non-technical owner
 // opening it directly — see docs/BACKEND_SCHEMA.md §7. `entryId` groups the
@@ -486,15 +489,34 @@ async function listDrivers(branchId, { includeInactive = false } = {}) {
   const rows = await sheetsClient.getRows("Drivers", DRIVERS_HEADERS);
   return rows
     .filter((r) => r.branchId === branchId)
-    .map((r) => ({ id: r.id, name: r.name, active: sheetsClient.toBool(r.active) }))
+    .map((r) => ({ id: r.id, name: r.name, active: sheetsClient.toBool(r.active), username: r.username || "" }))
     .filter((d) => includeInactive || d.active)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function addDriver(branchId, name) {
-  const driver = { id: newId(), branchId, name: name.trim(), active: "TRUE" };
+// Usernames are global (not scoped to a branch) since a driver logs in from
+// the same login page as everyone else, before the app knows which branch
+// they belong to — it has to find them by username alone.
+async function usernameTaken(username, excludeDriverId) {
+  const rows = await sheetsClient.getRows("Drivers", DRIVERS_HEADERS);
+  const normalized = username.trim().toLowerCase();
+  return rows.some((r) => r.id !== excludeDriverId && (r.username || "").toLowerCase() === normalized);
+}
+
+async function addDriver(branchId, name, username, password) {
+  if (!username || !username.trim()) throw new Error("A username is required for the driver to log in with.");
+  if (!password || password.length < 6) throw new Error("Password must be at least 6 characters.");
+  if (await usernameTaken(username)) throw new Error("That username is already taken. Choose another.");
+  const driver = {
+    id: newId(),
+    branchId,
+    name: name.trim(),
+    active: "TRUE",
+    username: username.trim(),
+    passwordHash: bcrypt.hashSync(password, 10),
+  };
   await sheetsClient.appendRow("Drivers", DRIVERS_HEADERS, driver);
-  return { id: driver.id, name: driver.name, active: true };
+  return { id: driver.id, name: driver.name, active: true, username: driver.username };
 }
 
 async function findDriverRow(branchId, id) {
@@ -502,17 +524,37 @@ async function findDriverRow(branchId, id) {
   return rows.find((r) => r.branchId === branchId && r.id === id) || null;
 }
 
-async function updateDriver(branchId, id, { name, active }) {
+async function updateDriver(branchId, id, { name, active, username, password }) {
   const row = await findDriverRow(branchId, id);
   if (!row) return null;
+  if (typeof username === "string" && username.trim() && (await usernameTaken(username, id))) {
+    throw new Error("That username is already taken. Choose another.");
+  }
+  if (typeof password === "string" && password && password.length < 6) {
+    throw new Error("Password must be at least 6 characters.");
+  }
   const next = {
     id: row.id,
     branchId: row.branchId,
     name: typeof name === "string" && name.trim() ? name.trim() : row.name,
     active: typeof active === "boolean" ? (active ? "TRUE" : "FALSE") : row.active,
+    username: typeof username === "string" && username.trim() ? username.trim() : row.username,
+    passwordHash: typeof password === "string" && password ? bcrypt.hashSync(password, 10) : row.passwordHash,
   };
   await sheetsClient.updateRow("Drivers", DRIVERS_HEADERS, row.__row, next);
-  return { id: next.id, name: next.name, active: sheetsClient.toBool(next.active) };
+  return { id: next.id, name: next.name, active: sheetsClient.toBool(next.active), username: next.username };
+}
+
+// Used only by the driver login flow — searches across every branch, since
+// a driver logs in by username alone before the app knows their branch.
+async function verifyDriverLogin(username, password) {
+  if (!username || !password) return null;
+  const rows = await sheetsClient.getRows("Drivers", DRIVERS_HEADERS);
+  const normalized = username.trim().toLowerCase();
+  const row = rows.find((r) => (r.username || "").toLowerCase() === normalized);
+  if (!row || !row.passwordHash || !sheetsClient.toBool(row.active)) return null;
+  if (!bcrypt.compareSync(password, row.passwordHash)) return null;
+  return { driverId: row.id, branchId: row.branchId, name: row.name };
 }
 
 async function driverHasEntries(branchId, id) {
@@ -896,7 +938,10 @@ async function buildHistory({ branchId, mode, anchor }) {
 
 // ---------- delivery history dashboard (weekly / monthly, per-driver, expandable) ----------
 
-async function buildDeliveryHistory({ branchId, mode, anchor }) {
+// `onlyDriverId`, when given, restricts this to one driver's own rows — used
+// by the driver's own read-only history view so it can reuse every bit of
+// this instead of re-deriving pay totals a second way.
+async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
   const { mode: safeMode, range, prevAnchor, nextAnchor, label } = resolveRange(mode, anchor);
 
   const entries = await listDeliveryEntries(branchId, { from: range.from, to: range.to });
@@ -907,6 +952,7 @@ async function buildDeliveryHistory({ branchId, mode, anchor }) {
   for (const entry of entries) {
     const isSolo = (entry.driverCount || entry.drivers.length) === 1;
     for (const share of entry.shares) {
+      if (onlyDriverId && share.driverId !== onlyDriverId) continue;
       const row = byDriver.get(share.driverId) || {
         driverId: share.driverId,
         hours: 0,
@@ -987,6 +1033,13 @@ async function buildDeliveryHistory({ branchId, mode, anchor }) {
     rows,
     totals,
   };
+}
+
+// The driver's own read-only view — always weekly (never daily/monthly/
+// quarterly like the branch admin's view), and only ever this one driver's
+// pay, never other drivers'.
+async function getDriverOwnHistory({ branchId, driverId, anchor }) {
+  return buildDeliveryHistory({ branchId, mode: "week", anchor, onlyDriverId: driverId });
 }
 
 // ---------- flattened cross-branch dataset (owner analytics dashboard) ----------
@@ -1119,6 +1172,8 @@ module.exports = {
   updateDriver,
   driverHasEntries,
   deleteDriver,
+  verifyDriverLogin,
+  getDriverOwnHistory,
   listDeliveryEntries,
   getDeliveryEntry,
   addDeliveryEntry,
