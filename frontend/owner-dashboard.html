@@ -89,7 +89,8 @@
       <div class="owner-main-header">
         <h1>Owner settings</h1>
       </div>
-      <div class="card" style="max-width:440px">
+      <div style="display:flex; flex-wrap:wrap; gap:20px; align-items:flex-start">
+      <div class="card" style="max-width:440px; flex:1 1 380px">
         <h2>Change owner password</h2>
         <p class="subtitle">This is the password used to log in as Owner.</p>
         <form id="owner-pw-form">
@@ -103,7 +104,7 @@
         </form>
       </div>
 
-      <div class="card" style="max-width:440px; margin-top:20px">
+      <div class="card" style="max-width:440px; flex:1 1 380px">
         <h2>Driver's Payment</h2>
         <p class="subtitle">
           Used to calculate every branch's driver pay. The minimum wage is the government-set floor
@@ -143,7 +144,7 @@
         </form>
       </div>
 
-      <div class="card" style="max-width:440px; margin-top:20px">
+      <div class="card" style="max-width:440px; flex:1 1 380px">
         <h2>Sign in with Google</h2>
         <p class="subtitle" id="google-status-text">Checking status&hellip;</p>
         <form id="google-email-form">
@@ -156,13 +157,13 @@
         </form>
       </div>
 
-      <div class="card" style="max-width:440px; margin-top:20px">
+      <div class="card" style="max-width:440px; flex:1 1 380px">
         <h2>Data storage</h2>
         <p class="subtitle" id="sheets-status-text">Loading&hellip;</p>
         <div id="sheets-actions" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px"></div>
       </div>
 
-      <div class="card" style="max-width:440px; margin-top:20px">
+      <div class="card" style="max-width:440px; flex:1 1 380px">
         <h2>Data retention</h2>
         <p class="subtitle">Keep the Google Sheet from growing forever by clearing out old history.</p>
         <label style="display:flex; align-items:center; gap:8px; font-weight:600; margin-top:14px; cursor:pointer">
@@ -176,6 +177,7 @@
         </p>
         <div class="error-msg" id="auto-delete-error"></div>
         <div class="success-msg" id="auto-delete-success"></div>
+      </div>
       </div>
     </div>
   </div>

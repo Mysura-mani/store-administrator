@@ -287,6 +287,11 @@ function enhanceSelect(select) {
   function refreshLabel() {
     const opt = select.options[select.selectedIndex];
     label.textContent = opt ? opt.textContent : "";
+    // Pages disable the underlying <select> directly (e.g. delivery-entry.html
+    // locking a submitted entry's fields) — the trigger button is a separate
+    // element the click handler already ignores when disabled, but it still
+    // needs the matching visual/native-disabled state to look and act the part.
+    trigger.disabled = select.disabled;
   }
 
   function positionPanel() {
@@ -373,7 +378,7 @@ function enhanceSelect(select) {
       refreshLabel();
     },
   });
-  new MutationObserver(refreshLabel).observe(select, { childList: true });
+  new MutationObserver(refreshLabel).observe(select, { childList: true, attributes: true, attributeFilter: ["disabled"] });
 
   refreshLabel();
 }

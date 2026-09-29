@@ -90,6 +90,7 @@ input:focus, select:focus, .cdd-trigger:focus { outline: 2px solid var(--primary
 .cdd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cdd-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--muted); transition: transform 0.15s; }
 .cdd-trigger[aria-expanded="true"] .cdd-chevron { transform: rotate(180deg); }
+.cdd-trigger:disabled { background: #f3f4f6; color: var(--muted); cursor: not-allowed; }
 /* position: fixed + appended to <body> (not left inside .cdd-wrap) so an
    ancestor with overflow: hidden (e.g. .login-card) can't clip the open
    panel the way it would a normal absolutely-positioned descendant. */

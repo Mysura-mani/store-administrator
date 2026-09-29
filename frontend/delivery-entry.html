@@ -30,8 +30,9 @@
       <div id="driver-cards" style="margin-top:20px"></div>
 
       <div style="display:flex; align-items:center; gap:14px; margin-top:8px">
-        <button type="submit" class="btn-primary">Send for review</button>
-        <button type="button" class="btn-secondary" id="cancel-edit" style="display:none">Cancel edit</button>
+        <button type="submit" class="btn-primary" id="submit-btn">Submit</button>
+        <button type="button" class="btn-secondary" id="edit-btn" style="display:none">Edit</button>
+        <button type="button" class="btn-secondary" id="cancel-edit" style="display:none">Reset</button>
         <span id="global-status"></span>
       </div>
     </form>
@@ -191,6 +192,18 @@
     el.className = isError ? "error-msg" : "success-msg";
   }
 
+  // Once submitted, an entry's fields lock (read-only) — "Edit" unlocks them
+  // again for a correction, "Submit" saves and re-locks. This is also what
+  // the driver sees mirrored in their own read-only history: a submitted
+  // entry, not one still being filled in.
+  function setFormLocked(isLocked) {
+    document.getElementById("date").disabled = isLocked;
+    document.getElementById("driver-count").disabled = isLocked;
+    document.querySelectorAll(".driver-card input, .driver-card select").forEach((el) => (el.disabled = isLocked));
+    document.getElementById("submit-btn").style.display = isLocked ? "none" : "inline-block";
+    document.getElementById("edit-btn").style.display = isLocked ? "inline-block" : "none";
+  }
+
   async function saveEntry(statusEl) {
     statusEl.textContent = "";
     const payload = {
@@ -205,9 +218,10 @@
       } else {
         const result = await api("/api/delivery-entries", { method: "POST", body: JSON.stringify(payload) });
         document.getElementById("entry-id").value = result.id;
-        document.getElementById("cancel-edit").style.display = "inline-block";
       }
-      setStatus(statusEl, "Saved.", false);
+      document.getElementById("cancel-edit").style.display = "inline-block";
+      setFormLocked(true);
+      setStatus(statusEl, "Submitted.", false);
     } catch (err) {
       setStatus(statusEl, err.message, true);
     }
@@ -236,6 +250,7 @@
     }
     recalcAllTotals();
     document.getElementById("cancel-edit").style.display = "inline-block";
+    setFormLocked(true);
   }
 
   // Looks up whether the selected date already has a (possibly partial)
@@ -254,6 +269,7 @@
         document.getElementById("driver-count").value = 1;
         document.getElementById("driver-cards").innerHTML = "";
         syncDriverCount(1);
+        setFormLocked(false);
       }
     } catch (err) {
       /* leave the form as-is on a transient error */
@@ -292,6 +308,11 @@
 
   document.getElementById("cancel-edit").addEventListener("click", () => {
     window.location.href = "/delivery-entry.html";
+  });
+
+  document.getElementById("edit-btn").addEventListener("click", () => {
+    setFormLocked(false);
+    setStatus(document.getElementById("global-status"), "", false);
   });
 
   document.getElementById("delivery-form").addEventListener("submit", (e) => {
