@@ -8,93 +8,23 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="login-page">
-  <img class="login-bg" src="/login-illustration.png" alt="" />
+<div class="login-select-page">
+  <div class="login-select-header">
+    <div class="brand">Administration<span>Tracker</span></div>
+    <button type="button" class="theme-toggle-inline" id="theme-toggle-btn"></button>
+  </div>
 
-  <div class="login-card">
-    <div class="login-card-top">
-      <div class="login-eyebrow">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
-          <path d="M2 20c0-3 2.5-5.5 6-5.5s6 2.5 6 5.5" />
-          <path d="M16 8a2.5 2.5 0 1 0 0-5" />
-          <path d="M14.5 14.8c2.9.4 4.5 2.4 4.5 5.2" />
-        </svg>
-        Dashboard Login
-      </div>
-      <button type="button" class="theme-toggle-inline" id="theme-toggle-btn"></button>
-    </div>
+  <div class="login-select-intro">
+    <h1>Choose your account</h1>
+    <p class="subtitle">Select where you'd like to log in, then enter your password.</p>
+  </div>
 
-    <div class="login-card-body">
-      <div class="login-error" id="error"></div>
-      <h1>WELCOME BACK</h1>
-      <p class="subtitle">Give your best report today!</p>
+  <div class="login-error" id="error"></div>
 
-      <form id="login-form">
-        <div id="store-field">
-          <label for="store-select">Store</label>
-          <div class="input-with-icon">
-            <span class="field-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="8" r="3.5" />
-                <path d="M5 20c0-3.87 3.13-6 7-6s7 2.13 7 6" />
-              </svg>
-            </span>
-            <select id="store-select"></select>
-            <span class="chevron">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M6 9l6 6 6-6" />
-              </svg>
-            </span>
-          </div>
-        </div>
-
-        <div id="driver-username-block" style="display:none">
-          <label for="driver-username">Username</label>
-          <div class="input-with-icon">
-            <span class="field-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="8" r="3.5" />
-                <path d="M5 20c0-3.87 3.13-6 7-6s7 2.13 7 6" />
-              </svg>
-            </span>
-            <input type="text" id="driver-username" autocomplete="username" />
-          </div>
-        </div>
-
-        <div id="password-block">
-          <label for="password">Password</label>
-          <div class="input-with-icon">
-            <span class="field-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="5" y="11" width="14" height="9" rx="2" />
-                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-              </svg>
-            </span>
-            <input type="password" id="password" />
-          </div>
-        </div>
-
-        <button type="submit" class="btn-primary btn-full" id="submit-btn">
-          <span class="btn-icon-row">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-              <path d="M10 17l5-5-5-5" />
-              <path d="M15 12H3" />
-            </svg>
-            Login to My Account
-          </span>
-        </button>
-      </form>
-
-      <div id="google-block" style="display:none">
-        <div class="or-divider"><span>OR</span></div>
-        <button type="button" class="btn-google btn-full" id="google-btn">
-          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.61z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97L3.95 7.3C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
-          Continue with Google
-        </button>
-      </div>
-    </div>
+  <div class="account-carousel">
+    <button type="button" class="carousel-arrow" id="carousel-prev" aria-label="Previous account">&larr;</button>
+    <div class="account-track" id="account-track"></div>
+    <button type="button" class="carousel-arrow" id="carousel-next" aria-label="Next account">&rarr;</button>
   </div>
 
   <div class="login-legal-footer">
@@ -106,46 +36,9 @@
 
 <script src="/common.js"></script>
 <script>
-  let branches = [];
+  let accounts = [];
+  let activeIndex = 0;
   let googleAvailable = false;
-
-  function isOwnerSelected() {
-    return document.getElementById("store-select").value === "__owner__";
-  }
-
-  function isOthersSelected() {
-    return document.getElementById("store-select").value === "__others__";
-  }
-
-  function populateSelect() {
-    const select = document.getElementById("store-select");
-    const branchOptions = branches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join("");
-    select.innerHTML = `${branchOptions}<option value="__owner__">Owner</option><option value="__others__">Others</option>`;
-    select.addEventListener("change", () => {
-      updateGoogleVisibility();
-      updateFieldVisibility();
-    });
-
-    // No branches yet (a fresh setup, before the owner has created any) —
-    // there's nothing to actually choose between, so skip the dropdown and
-    // go straight to a plain owner login. "Owner" stays the select's sole,
-    // already-selected option either way, so nothing else here needs to
-    // change — this reappears on its own the moment a branch exists, since
-    // the branch list is re-fetched fresh on every page load.
-    document.getElementById("store-field").style.display = branches.length === 0 ? "none" : "";
-  }
-
-  function updateGoogleVisibility() {
-    const showGoogle = isOwnerSelected() && googleAvailable;
-    document.getElementById("google-block").style.display = showGoogle ? "block" : "none";
-  }
-
-  // "Others" (a driver logging in) uses a username + password pair instead
-  // of the branch/owner flow's password-only field.
-  function updateFieldVisibility() {
-    const others = isOthersSelected();
-    document.getElementById("driver-username-block").style.display = others ? "block" : "none";
-  }
 
   function redirectForRole(role) {
     if (role === "owner") window.location.href = "/owner-dashboard.html";
@@ -158,6 +51,107 @@
     google_email_not_authorized: "That Google account isn't authorized as the owner.",
     google_login_failed: "Google sign-in failed. Please try again.",
   };
+
+  function cardHtml(account, index) {
+    if (index !== activeIndex) {
+      return `
+        <button type="button" class="account-card" data-index="${index}">
+          <div class="account-icon">${account.icon}</div>
+          <div class="account-name">${escapeHtml(account.name)}</div>
+        </button>
+      `;
+    }
+    const usernameField =
+      account.type === "others"
+        ? `<label for="acct-username">Username</label>
+           <input type="text" id="acct-username" autocomplete="username" />`
+        : "";
+    const googleBlock =
+      account.type === "owner" && googleAvailable
+        ? `<div class="or-divider"><span>OR</span></div>
+           <button type="button" class="btn-google btn-full" id="google-btn">
+             <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.61z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97L3.95 7.3C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+             Continue with Google
+           </button>`
+        : "";
+    return `
+      <div class="account-card active" data-index="${index}">
+        <div class="account-icon">${account.icon}</div>
+        <div class="account-name">${escapeHtml(account.name)}</div>
+        <form id="acct-login-form" class="account-login-form">
+          ${usernameField}
+          <label for="acct-password">Password</label>
+          <input type="password" id="acct-password" autocomplete="current-password" />
+          <button type="submit" class="btn-primary btn-full" style="margin-top:16px">Log in</button>
+        </form>
+        ${googleBlock}
+      </div>
+    `;
+  }
+
+  function render() {
+    document.getElementById("account-track").innerHTML = accounts.map((a, i) => cardHtml(a, i)).join("");
+
+    document.querySelectorAll(".account-card:not(.active)").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeIndex = Number(btn.dataset.index);
+        document.getElementById("error").textContent = "";
+        render();
+      });
+    });
+
+    const form = document.getElementById("acct-login-form");
+    if (form) form.addEventListener("submit", handleSubmit);
+    const googleBtn = document.getElementById("google-btn");
+    if (googleBtn) googleBtn.addEventListener("click", () => { window.location.href = "/auth/google"; });
+
+    const hasMultiple = accounts.length > 1;
+    document.getElementById("carousel-prev").style.display = hasMultiple ? "flex" : "none";
+    document.getElementById("carousel-next").style.display = hasMultiple ? "flex" : "none";
+
+    // Guide focus straight into the active card's first field, since
+    // choosing an account is only step one — typing the password is what
+    // actually happens next.
+    const usernameInput = document.getElementById("acct-username");
+    const passwordInput = document.getElementById("acct-password");
+    if (usernameInput) usernameInput.focus();
+    else if (passwordInput) passwordInput.focus();
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const errorEl = document.getElementById("error");
+    errorEl.textContent = "";
+    const account = accounts[activeIndex];
+    const password = document.getElementById("acct-password").value;
+    try {
+      let result;
+      if (account.type === "owner") {
+        result = await api("/api/owner-login", { method: "POST", body: JSON.stringify({ password }) });
+      } else if (account.type === "others") {
+        const username = document.getElementById("acct-username").value;
+        result = await api("/api/driver-login", { method: "POST", body: JSON.stringify({ username, password }) });
+      } else {
+        result = await api("/api/login", { method: "POST", body: JSON.stringify({ branchId: account.id, password }) });
+      }
+      redirectForRole(result.role);
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  }
+
+  document.getElementById("carousel-prev").addEventListener("click", () => {
+    activeIndex = (activeIndex - 1 + accounts.length) % accounts.length;
+    document.getElementById("error").textContent = "";
+    render();
+  });
+  document.getElementById("carousel-next").addEventListener("click", () => {
+    activeIndex = (activeIndex + 1) % accounts.length;
+    document.getElementById("error").textContent = "";
+    render();
+  });
+
+  initThemeToggle(document.getElementById("theme-toggle-btn"));
 
   (async () => {
     const sessionRes = await fetch("/api/session");
@@ -174,46 +168,20 @@
       document.getElementById("error").textContent = "You were logged out after 5 minutes of inactivity.";
     }
     const [branchList, googleStatus] = await Promise.all([api("/api/branches"), api("/api/auth/google/available")]);
-    branches = branchList;
     googleAvailable = googleStatus.available;
-    populateSelect();
-    updateGoogleVisibility();
+    // No branches yet — nothing to actually choose between, so go straight
+    // to a plain owner login (same bootstrap behavior as before).
+    accounts =
+      branchList.length === 0
+        ? [{ type: "owner", id: "__owner__", name: "Owner", icon: "👑" }]
+        : [
+            ...branchList.map((b) => ({ type: "branch", id: b.id, name: b.name, icon: "🏬" })),
+            { type: "owner", id: "__owner__", name: "Owner", icon: "👑" },
+            { type: "others", id: "__others__", name: "Others", icon: "🛵" },
+          ];
+    activeIndex = 0;
+    render();
   })();
-
-  document.getElementById("google-btn").addEventListener("click", () => {
-    window.location.href = "/auth/google";
-  });
-
-  initThemeToggle(document.getElementById("theme-toggle-btn"));
-
-  document.getElementById("login-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const errorEl = document.getElementById("error");
-    errorEl.textContent = "";
-    const password = document.getElementById("password").value;
-    try {
-      if (isOwnerSelected()) {
-        const result = await api("/api/owner-login", { method: "POST", body: JSON.stringify({ password }) });
-        redirectForRole(result.role);
-      } else if (isOthersSelected()) {
-        const username = document.getElementById("driver-username").value;
-        const result = await api("/api/driver-login", {
-          method: "POST",
-          body: JSON.stringify({ username, password }),
-        });
-        redirectForRole(result.role);
-      } else {
-        const branchId = document.getElementById("store-select").value;
-        const result = await api("/api/login", {
-          method: "POST",
-          body: JSON.stringify({ branchId, password }),
-        });
-        redirectForRole(result.role);
-      }
-    } catch (err) {
-      errorEl.textContent = err.message;
-    }
-  });
 </script>
 </body>
 </html>

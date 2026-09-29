@@ -8,35 +8,44 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="app-shell">
-  <div class="topbar" id="topbar"></div>
+<div class="owner-shell">
+  <div class="owner-sidebar" id="sidebar"></div>
 
-  <div class="card" style="max-width:480px; margin-bottom:20px">
-    <h2>Change staff password</h2>
-    <p class="subtitle">This is the password staff at this branch use to log in.</p>
-    <form id="staff-pw-form">
-      <label for="new-staff-password">New staff password</label>
-      <input type="password" id="new-staff-password" minlength="6" required />
-      <button type="submit" class="btn-primary" style="margin-top:14px">Update password</button>
-      <div class="error-msg" id="staff-error"></div>
-      <div class="success-msg" id="staff-success"></div>
-    </form>
+  <div class="owner-main">
+    <div class="owner-main-header">
+      <h1>Settings</h1>
+      <div class="branch-info">
+        <div class="branch-name" id="branch-tag"></div>
+        <span class="badge" id="role-badge-pill"></span>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:480px; margin-bottom:20px">
+      <h2>Change staff password</h2>
+      <p class="subtitle">This is the password staff at this branch use to log in.</p>
+      <form id="staff-pw-form">
+        <label for="new-staff-password">New staff password</label>
+        <input type="password" id="new-staff-password" minlength="6" required />
+        <button type="submit" class="btn-primary" style="margin-top:14px">Update password</button>
+        <div class="error-msg" id="staff-error"></div>
+        <div class="success-msg" id="staff-success"></div>
+      </form>
+    </div>
+
+    <div class="card" style="max-width:480px; margin-bottom:20px">
+      <h2>Change admin password</h2>
+      <p class="subtitle">Confirm the current admin password for this branch to set a new one.</p>
+      <form id="admin-pw-form">
+        <label for="current-password">Current admin password</label>
+        <input type="password" id="current-password" required />
+        <label for="new-admin-password">New admin password</label>
+        <input type="password" id="new-admin-password" minlength="6" required />
+        <button type="submit" class="btn-primary" style="margin-top:14px">Update admin password</button>
+        <div class="error-msg" id="admin-error"></div>
+        <div class="success-msg" id="admin-success"></div>
+      </form>
+    </div>
   </div>
-
-  <div class="card" style="max-width:480px; margin-bottom:20px">
-    <h2>Change admin password</h2>
-    <p class="subtitle">Confirm the current admin password for this branch to set a new one.</p>
-    <form id="admin-pw-form">
-      <label for="current-password">Current admin password</label>
-      <input type="password" id="current-password" required />
-      <label for="new-admin-password">New admin password</label>
-      <input type="password" id="new-admin-password" minlength="6" required />
-      <button type="submit" class="btn-primary" style="margin-top:14px">Update admin password</button>
-      <div class="error-msg" id="admin-error"></div>
-      <div class="success-msg" id="admin-success"></div>
-    </form>
-  </div>
-
 </div>
 
 <script src="/common.js"></script>
@@ -44,7 +53,7 @@
   (async () => {
     const session = await requireSession("admin");
     if (!session) return;
-    renderShell(session, "/settings.html");
+    renderBranchSidebar(session, "/settings.html");
   })();
 
   document.getElementById("staff-pw-form").addEventListener("submit", async (e) => {

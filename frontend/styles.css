@@ -570,6 +570,99 @@ tbody tr:hover { background: var(--row-hover); }
   flex-shrink: 0;
 }
 
+/* ---------- account picker (carousel-style login) ---------- */
+.login-select-page {
+  min-height: 100vh;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 24px 0;
+}
+.login-select-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1000px;
+  margin: 0 auto;
+  width: 100%;
+}
+.login-select-intro { text-align: center; margin-top: 48px; }
+.login-select-intro h1 { font-size: 32px; margin-bottom: 8px; }
+.login-select-intro .subtitle { margin-bottom: 0; }
+.login-select-page .login-error { text-align: center; min-height: 20px; margin-top: 18px; }
+
+.account-carousel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex: 1;
+  padding: 24px 16px 60px;
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+}
+.carousel-arrow {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.carousel-arrow:hover { background: var(--surface-hover); }
+
+.account-track {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.account-card {
+  flex: 0 0 auto;
+  width: 140px;
+  padding: 24px 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0.6;
+  transform: scale(0.92);
+  transition: opacity 0.2s ease, transform 0.2s ease, width 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  font-family: inherit;
+}
+.account-card:hover { opacity: 0.85; }
+.account-card.active {
+  width: 300px;
+  max-width: 100%;
+  opacity: 1;
+  transform: scale(1);
+  border: 2px solid var(--primary);
+  box-shadow: 0 12px 32px rgba(37, 99, 235, 0.18);
+  cursor: default;
+}
+.account-icon { font-size: 40px; margin-bottom: 10px; }
+.account-card.active .account-icon { font-size: 52px; }
+.account-name { font-weight: 700; font-size: 15px; color: var(--text); }
+.account-card.active .account-name { font-size: 20px; margin-bottom: 18px; }
+
+.account-login-form { text-align: left; margin-top: 4px; }
+.account-login-form label { margin-top: 12px; }
+
+@media (max-width: 620px) {
+  .login-select-intro { margin-top: 24px; }
+  .account-card.active { width: 100%; }
+}
+
 @media (max-width: 620px) {
   .login-page { justify-content: center; padding: 24px; }
   .login-card { width: 100%; }
@@ -640,6 +733,8 @@ tbody tr:hover { background: var(--row-hover); }
 .owner-main { flex: 1; padding: 32px 40px; min-width: 0; }
 .owner-main-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
 .owner-main-header h1 { margin: 0; font-size: 24px; }
+.branch-info { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.branch-name { font-size: 22px; font-weight: 800; color: var(--text); line-height: 1.1; }
 
 .stat-card-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
 .stat-card {

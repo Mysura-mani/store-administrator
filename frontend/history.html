@@ -8,10 +8,19 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="app-shell">
-  <div class="topbar" id="topbar"></div>
+<div class="owner-shell">
+  <div class="owner-sidebar" id="sidebar"></div>
 
-  <div class="card">
+  <div class="owner-main">
+    <div class="owner-main-header">
+      <h1>Tip History</h1>
+      <div class="branch-info">
+        <div class="branch-name" id="branch-tag"></div>
+        <span class="badge" id="role-badge-pill"></span>
+      </div>
+    </div>
+
+    <div class="card">
     <div class="section-title">
       <h2>Tips by employee</h2>
       <div class="tabs" style="width:400px; margin:0">
@@ -29,6 +38,7 @@
     </div>
 
     <div id="table-wrap"><p class="empty-state">Loading&hellip;</p></div>
+    </div>
   </div>
 </div>
 
@@ -148,7 +158,7 @@
     const session = await requireSession();
     if (!session) return;
     isAdmin = session.role === "admin";
-    renderShell(session, "/history.html", "tips");
+    renderBranchSidebar(session, "/history.html");
     await load();
   })();
 </script>

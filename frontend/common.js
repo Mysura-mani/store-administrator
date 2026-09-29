@@ -110,73 +110,77 @@ async function requireSession(minRole) {
   }
 }
 
-// `section` is "tips" or "delivery" — controls which sub-nav links show.
-function renderShell(session, activePage, section) {
-  const sectionTabs = [
-    { href: "/entry.html", label: "Tip Sheet", section: "tips" },
-    { href: "/delivery-entry.html", label: "Delivery", section: "delivery" },
-  ];
-
-  const subNav = [];
-  if (section === "delivery") {
-    subNav.push({ href: "/delivery-entry.html", label: "Delivery Payout" });
-    subNav.push({ href: "/delivery-history.html", label: "Delivery History" });
-  } else if (section === "tips") {
-    subNav.push({ href: "/entry.html", label: "New Entry" });
-    subNav.push({ href: "/history.html", label: "History" });
-  }
-
-  if (session.role === "admin") {
-    subNav.push({ href: "/employees.html", label: "Employees" });
-    subNav.push({ href: "/drivers.html", label: "Drivers" });
-    subNav.push({ href: "/settings.html", label: "Settings" });
-  }
-
-  const tabsHtml = sectionTabs
-    .map((item) => `<a href="${item.href}" class="${item.section === section ? "active" : ""}">${item.label}</a>`)
-    .join("");
-
-  const navHtml = subNav
-    .map((item) => `<a href="${item.href}" class="${item.href === activePage ? "active" : ""}">${item.label}</a>`)
-    .join("");
-
-  const roleBadge =
-    session.role === "admin"
-      ? `<span class="badge badge-admin">Admin</span>`
-      : `<span class="badge badge-staff">Staff</span><button class="btn-secondary btn-small" id="admin-btn">Admin</button>`;
-
-  const backToOwnerBtn = session.viaOwner
-    ? `<button class="btn-secondary" id="back-to-owner-btn">&larr; Back to Owner</button>`
-    : "";
-
-  document.getElementById("topbar").innerHTML = `
-    <div class="brand"><a href="/dashboard.html">Administration<span>Tracker</span></a> <span class="branch-tag">${escapeHtml(session.branchName || session.branchId)}</span></div>
-    <div class="nav section-tabs">${tabsHtml}</div>
-    <div class="nav">${navHtml}</div>
-    <div class="user-pill">
-      ${roleBadge}
-      ${backToOwnerBtn}
-      <button class="btn-secondary btn-small" id="theme-toggle-btn"></button>
-      <button class="btn-secondary" id="logout-btn">Log out</button>
+// Shared left sidebar for every branch-facing page (staff/admin) — every
+// data-entry, history, and admin page renders the same full nav list here
+// instead of each page showing its own subset of tabs at the top, so the
+// only thing that changes page to page is which link is marked active.
+function renderBranchSidebar(session, activePage) {
+  const isActive = (href) => (href === activePage ? "active" : "");
+  document.getElementById("sidebar").innerHTML = `
+    <div class="brand">
+      Administration<span>Tracker</span>
+    </div>
+    <div class="owner-nav" id="branch-nav">
+      <a href="/dashboard.html" class="nav-link ${isActive("/dashboard.html")}"><span class="nav-icon">&#128200;</span> Overview</a>
+      <a href="/entry.html" class="nav-link ${isActive("/entry.html")}"><span class="nav-icon">&#128176;</span> Tip Sheet</a>
+      <a href="/delivery-entry.html" class="nav-link ${isActive("/delivery-entry.html")}"><span class="nav-icon">&#128690;</span> Delivery</a>
+      <a href="/history.html" class="nav-link ${isActive("/history.html")}"><span class="nav-icon">&#128197;</span> Tip History</a>
+      <a href="/delivery-history.html" class="nav-link ${isActive("/delivery-history.html")}"><span class="nav-icon">&#128197;</span> Delivery History</a>
+      <div id="admin-nav-links"></div>
+      <div id="admin-unlock-slot"></div>
+      <div id="back-to-owner-slot"></div>
+      <button type="button" id="theme-toggle-btn"></button>
+      <button type="button" id="logout-btn"><span class="nav-icon">&#8618;</span> Log out</button>
     </div>
   `;
 
-  initThemeToggle(document.getElementById("theme-toggle-btn"));
+  if (session.role === "admin") {
+    document.getElementById("admin-nav-links").innerHTML = `
+      <a href="/employees.html" class="nav-link ${isActive("/employees.html")}"><span class="nav-icon">&#128101;</span> Employees</a>
+      <a href="/drivers.html" class="nav-link ${isActive("/drivers.html")}"><span class="nav-icon">&#128663;</span> Drivers</a>
+      <a href="/settings.html" class="nav-link ${isActive("/settings.html")}"><span class="nav-icon">&#9881;&#65039;</span> Settings</a>
+    `;
+  } else {
+    document.getElementById("admin-unlock-slot").innerHTML = `
+      <button type="button" id="admin-btn"><span class="nav-icon">&#128274;</span> Admin</button>
+    `;
+    document.getElementById("admin-btn").addEventListener("click", openAdminPrompt);
+  }
+
+  if (session.viaOwner) {
+    document.getElementById("back-to-owner-slot").innerHTML = `
+      <button type="button" id="back-to-owner-btn"><span class="nav-icon">&larr;</span> Back to Owner</button>
+    `;
+    document.getElementById("back-to-owner-btn").addEventListener("click", async () => {
+      await api("/api/owner/return", { method: "POST" });
+      window.location.href = "/owner-dashboard.html";
+    });
+  }
 
   document.getElementById("logout-btn").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST" });
     window.location.href = "/login.html";
   });
 
-  const adminBtn = document.getElementById("admin-btn");
-  if (adminBtn) adminBtn.addEventListener("click", openAdminPrompt);
-
-  const backBtn = document.getElementById("back-to-owner-btn");
-  if (backBtn) {
-    backBtn.addEventListener("click", async () => {
-      await api("/api/owner/return", { method: "POST" });
-      window.location.href = "/owner-dashboard.html";
+  (function () {
+    const themeBtn = document.getElementById("theme-toggle-btn");
+    function refresh() {
+      const dark = isDarkTheme();
+      themeBtn.innerHTML = `<span class="nav-icon">${dark ? "☀️" : "🌙"}</span> ${dark ? "Light mode" : "Dark mode"}`;
+    }
+    refresh();
+    themeBtn.addEventListener("click", () => {
+      toggleTheme();
+      refresh();
     });
+  })();
+
+  const tag = document.getElementById("branch-tag");
+  if (tag) tag.textContent = session.branchName || session.branchId;
+  const roleBadge = document.getElementById("role-badge-pill");
+  if (roleBadge) {
+    roleBadge.textContent = session.role === "admin" ? "Admin" : "Staff";
+    roleBadge.className = `badge ${session.role === "admin" ? "badge-admin" : "badge-staff"}`;
   }
 }
 

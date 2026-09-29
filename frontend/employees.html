@@ -8,24 +8,34 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="app-shell">
-  <div class="topbar" id="topbar"></div>
+<div class="owner-shell">
+  <div class="owner-sidebar" id="sidebar"></div>
 
-  <div class="card" style="margin-bottom:20px">
-    <h2>Add employee</h2>
-    <form id="add-form" class="row" style="align-items:flex-end">
-      <div>
-        <label for="new-name">Name</label>
-        <input type="text" id="new-name" required />
+  <div class="owner-main">
+    <div class="owner-main-header">
+      <h1>Employees</h1>
+      <div class="branch-info">
+        <div class="branch-name" id="branch-tag"></div>
+        <span class="badge" id="role-badge-pill"></span>
       </div>
-      <button type="submit" class="btn-primary">Add</button>
-    </form>
-    <div class="error-msg" id="add-error"></div>
-  </div>
+    </div>
 
-  <div class="card">
-    <h2>Employees</h2>
-    <div id="table-wrap"><p class="empty-state">Loading…</p></div>
+    <div class="card" style="margin-bottom:20px">
+      <h2>Add employee</h2>
+      <form id="add-form" class="row" style="align-items:flex-end">
+        <div>
+          <label for="new-name">Name</label>
+          <input type="text" id="new-name" required />
+        </div>
+        <button type="submit" class="btn-primary">Add</button>
+      </form>
+      <div class="error-msg" id="add-error"></div>
+    </div>
+
+    <div class="card">
+      <h2>Employees</h2>
+      <div id="table-wrap"><p class="empty-state">Loading…</p></div>
+    </div>
   </div>
 </div>
 
@@ -97,7 +107,7 @@
   (async () => {
     const session = await requireSession("admin");
     if (!session) return;
-    renderShell(session, "/employees.html", "tips");
+    renderBranchSidebar(session, "/employees.html");
     try {
       await loadEmployees();
     } catch (err) {

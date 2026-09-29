@@ -9,28 +9,15 @@
 </head>
 <body>
 <div class="owner-shell">
-  <div class="owner-sidebar">
-    <div class="brand">
-      Administration<span>Tracker</span>
-      <div class="owner-badge" id="role-badge">&mdash;</div>
-    </div>
-    <div class="owner-nav" id="branch-nav">
-      <a href="/dashboard.html" class="nav-link active"><span class="nav-icon">&#128200;</span> Overview</a>
-      <a href="/entry.html" class="nav-link"><span class="nav-icon">&#128176;</span> Tip Sheet</a>
-      <a href="/delivery-entry.html" class="nav-link"><span class="nav-icon">&#128690;</span> Delivery</a>
-      <a href="/history.html" class="nav-link"><span class="nav-icon">&#128197;</span> Tip History</a>
-      <a href="/delivery-history.html" class="nav-link"><span class="nav-icon">&#128197;</span> Delivery History</a>
-      <div id="admin-nav-links"></div>
-      <div id="admin-unlock-slot"></div>
-      <div id="back-to-owner-slot"></div>
-      <button type="button" id="theme-toggle-btn"></button>
-      <button type="button" id="logout-btn"><span class="nav-icon">&#8618;</span> Log out</button>
-    </div>
-  </div>
+  <div class="owner-sidebar" id="sidebar"></div>
 
   <div class="owner-main">
     <div class="owner-main-header">
       <h1 id="page-title">Overview</h1>
+      <div class="branch-info">
+        <div class="branch-name" id="branch-tag"></div>
+        <span class="badge" id="role-badge-pill"></span>
+      </div>
     </div>
     <p class="subtitle" id="page-subtitle" style="margin-top:-12px; margin-bottom:24px;"></p>
 
@@ -66,51 +53,10 @@
       return;
     }
 
+    renderBranchSidebar(session, "/dashboard.html");
     const branchLabel = session.branchName || session.branchId;
     document.getElementById("page-title").textContent = "Overview";
     document.getElementById("page-subtitle").textContent = `Welcome back — here's what's happening at ${branchLabel} today.`;
-    document.getElementById("role-badge").textContent = session.role === "admin" ? "Admin" : "Staff";
-
-    if (session.role === "admin") {
-      document.getElementById("admin-nav-links").innerHTML = `
-        <a href="/employees.html" class="nav-link"><span class="nav-icon">&#128101;</span> Employees</a>
-        <a href="/drivers.html" class="nav-link"><span class="nav-icon">&#128663;</span> Drivers</a>
-        <a href="/settings.html" class="nav-link"><span class="nav-icon">&#9881;&#65039;</span> Settings</a>
-      `;
-    } else {
-      document.getElementById("admin-unlock-slot").innerHTML = `
-        <button type="button" id="admin-btn"><span class="nav-icon">&#128274;</span> Admin</button>
-      `;
-      document.getElementById("admin-btn").addEventListener("click", openAdminPrompt);
-    }
-
-    if (session.viaOwner) {
-      document.getElementById("back-to-owner-slot").innerHTML = `
-        <button type="button" id="back-to-owner-btn"><span class="nav-icon">&larr;</span> Back to Owner</button>
-      `;
-      document.getElementById("back-to-owner-btn").addEventListener("click", async () => {
-        await api("/api/owner/return", { method: "POST" });
-        window.location.href = "/owner-dashboard.html";
-      });
-    }
-
-    document.getElementById("logout-btn").addEventListener("click", async () => {
-      await api("/api/logout", { method: "POST" });
-      window.location.href = "/login.html";
-    });
-
-    (function () {
-      const themeBtn = document.getElementById("theme-toggle-btn");
-      function refresh() {
-        const dark = isDarkTheme();
-        themeBtn.innerHTML = `<span class="nav-icon">${dark ? "☀️" : "🌙"}</span> ${dark ? "Light mode" : "Dark mode"}`;
-      }
-      refresh();
-      themeBtn.addEventListener("click", () => {
-        toggleTheme();
-        refresh();
-      });
-    })();
 
     try {
       const [employees, drivers, tipWeek, deliveryWeek] = await Promise.all([
