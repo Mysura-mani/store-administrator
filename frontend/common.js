@@ -149,6 +149,36 @@ function openAdminPrompt() {
   });
 }
 
+// A native confirm() has been observed to silently do nothing in some
+// browser setups (it's suppressed/auto-declined with no visible dialog) —
+// this in-page replacement always renders something the user can actually
+// see and click, using the same modal styling as the rest of the app.
+function confirmDialog(message) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <p style="margin-top:0">${escapeHtml(message)}</p>
+        <div style="display:flex; gap:10px; margin-top:14px">
+          <button type="button" class="btn-danger" id="confirm-dialog-ok">Confirm</button>
+          <button type="button" class="btn-secondary" id="confirm-dialog-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const finish = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) finish(false);
+    });
+    document.getElementById("confirm-dialog-ok").addEventListener("click", () => finish(true));
+    document.getElementById("confirm-dialog-cancel").addEventListener("click", () => finish(false));
+  });
+}
+
 function formatMoney(n) {
   return `€${Number(n).toFixed(2)}`;
 }

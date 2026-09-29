@@ -16,8 +16,28 @@ const DEFAULT_RATES = {
 const CONFIG_HEADERS = ["key", "value"];
 const EMPLOYEES_HEADERS = ["id", "branchId", "name", "active"];
 const DRIVERS_HEADERS = ["id", "branchId", "name", "active"];
-const ENTRIES_HEADERS = ["id", "branchId", "date", "cashTips", "creditTips", "shiftsJson"];
-const DELIVERY_ENTRIES_HEADERS = ["id", "branchId", "date", "driverCount", "driversJson"];
+// One plain row per employee-shift / driver-day (not one JSON-blob row per
+// day's entry) so the Sheet itself stays readable to a non-technical owner
+// opening it directly — see docs/BACKEND_SCHEMA.md §7. `entryId` groups the
+// rows that make up one saved entry back together.
+const ENTRIES_HEADERS = ["id", "entryId", "branchId", "date", "employeeId", "employeeName", "hours", "cashTips", "creditTips"];
+const DELIVERY_ENTRIES_HEADERS = [
+  "id",
+  "entryId",
+  "branchId",
+  "date",
+  "driverCount",
+  "driverId",
+  "driverName",
+  "hours",
+  "zone1Count",
+  "zone2Count",
+  "zone3Count",
+  "zone4Count",
+  "tips",
+  "note",
+  "cashOrdersJson",
+];
 
 function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
@@ -294,9 +314,7 @@ async function updateEmployee(branchId, id, { name, active }) {
 
 async function employeeHasEntries(branchId, id) {
   const rows = await sheetsClient.getRows("Entries", ENTRIES_HEADERS);
-  return rows
-    .filter((r) => r.branchId === branchId)
-    .some((r) => JSON.parse(r.shiftsJson || "[]").some((s) => s.employeeId === id));
+  return rows.some((r) => r.branchId === branchId && r.employeeId === id);
 }
 
 async function deleteEmployee(branchId, id) {
@@ -325,38 +343,46 @@ function withShares(entry) {
   return { ...entry, shares: computeShares(entry) };
 }
 
-function parseEntryRow(r) {
-  return {
-    id: r.id,
-    branchId: r.branchId,
-    date: r.date,
-    cashTips: Number(r.cashTips) || 0,
-    creditTips: Number(r.creditTips) || 0,
-    shifts: JSON.parse(r.shiftsJson || "[]"),
-    __row: r.__row,
-  };
+// Regroups the Sheet's one-row-per-shift layout back into one entry object
+// per distinct entryId (the shape every caller above this layer expects).
+function groupEntryRows(rows) {
+  const byEntryId = new Map();
+  for (const r of rows) {
+    if (!byEntryId.has(r.entryId)) byEntryId.set(r.entryId, []);
+    byEntryId.get(r.entryId).push(r);
+  }
+  return [...byEntryId.values()].map((group) => {
+    const first = group[0];
+    return {
+      id: first.entryId,
+      branchId: first.branchId,
+      date: first.date,
+      cashTips: Number(first.cashTips) || 0,
+      creditTips: Number(first.creditTips) || 0,
+      shifts: group.map((r) => ({ employeeId: r.employeeId, hours: Number(r.hours) || 0 })),
+      __rows: group.map((r) => r.__row),
+    };
+  });
 }
 
 async function listEntries(branchId, { from, to } = {}) {
   const rows = await sheetsClient.getRows("Entries", ENTRIES_HEADERS);
-  return rows
-    .filter((r) => r.branchId === branchId)
-    .map(parseEntryRow)
+  return groupEntryRows(rows.filter((r) => r.branchId === branchId))
     .filter((e) => (!from || e.date >= from) && (!to || e.date <= to))
     .sort((a, b) => (a.date < b.date ? 1 : -1))
-    .map(({ __row, branchId: _b, ...e }) => withShares(e));
+    .map(({ __rows, branchId: _b, ...e }) => withShares(e));
 }
 
 async function findEntryRow(branchId, id) {
   const rows = await sheetsClient.getRows("Entries", ENTRIES_HEADERS);
-  const found = rows.find((r) => r.branchId === branchId && r.id === id);
-  return found ? parseEntryRow(found) : null;
+  const group = rows.filter((r) => r.branchId === branchId && r.entryId === id);
+  return group.length ? groupEntryRows(group)[0] : null;
 }
 
 async function getEntry(branchId, id) {
   const found = await findEntryRow(branchId, id);
   if (!found) return null;
-  const { __row, branchId: _b, ...rest } = found;
+  const { __rows, branchId: _b, ...rest } = found;
   return withShares(rest);
 }
 
@@ -384,41 +410,54 @@ function validateEntryInput(input, validEmployeeIds) {
   return { date: input.date, cashTips, creditTips, shifts: cleanShifts };
 }
 
+async function writeEntryRows(entryId, branchId, clean, nameById) {
+  for (const shift of clean.shifts) {
+    await sheetsClient.appendRow("Entries", ENTRIES_HEADERS, {
+      id: newId(),
+      entryId,
+      branchId,
+      date: clean.date,
+      employeeId: shift.employeeId,
+      employeeName: nameById.get(shift.employeeId) || "",
+      hours: shift.hours,
+      cashTips: clean.cashTips,
+      creditTips: clean.creditTips,
+    });
+  }
+}
+
 async function addEntry(branchId, input) {
   const employees = await listEmployees(branchId, { includeInactive: true });
+  const nameById = new Map(employees.map((e) => [e.id, e.name]));
   const clean = validateEntryInput(input, new Set(employees.map((e) => e.id)));
-  const id = newId();
-  await sheetsClient.appendRow("Entries", ENTRIES_HEADERS, {
-    id,
-    branchId,
-    date: clean.date,
-    cashTips: clean.cashTips,
-    creditTips: clean.creditTips,
-    shiftsJson: JSON.stringify(clean.shifts),
-  });
-  return withShares({ id, date: clean.date, cashTips: clean.cashTips, creditTips: clean.creditTips, shifts: clean.shifts });
+  const entryId = newId();
+  await writeEntryRows(entryId, branchId, clean, nameById);
+  return withShares({ id: entryId, date: clean.date, cashTips: clean.cashTips, creditTips: clean.creditTips, shifts: clean.shifts });
 }
 
 async function updateEntry(branchId, id, input) {
   const existing = await findEntryRow(branchId, id);
   if (!existing) return null;
   const employees = await listEmployees(branchId, { includeInactive: true });
+  const nameById = new Map(employees.map((e) => [e.id, e.name]));
   const clean = validateEntryInput(input, new Set(employees.map((e) => e.id)));
-  await sheetsClient.updateRow("Entries", ENTRIES_HEADERS, existing.__row, {
-    id,
-    branchId,
-    date: clean.date,
-    cashTips: clean.cashTips,
-    creditTips: clean.creditTips,
-    shiftsJson: JSON.stringify(clean.shifts),
-  });
+  // The number of shifts can differ from what was saved before, so replace
+  // every row for this entry rather than updating them one-for-one — delete
+  // in descending row order first so earlier deletes don't shift the row
+  // numbers of ones still to be deleted.
+  for (const rowNum of [...existing.__rows].sort((a, b) => b - a)) {
+    await sheetsClient.deleteRow("Entries", rowNum);
+  }
+  await writeEntryRows(id, branchId, clean, nameById);
   return withShares({ id, date: clean.date, cashTips: clean.cashTips, creditTips: clean.creditTips, shifts: clean.shifts });
 }
 
 async function deleteEntry(branchId, id) {
   const existing = await findEntryRow(branchId, id);
   if (!existing) return false;
-  await sheetsClient.deleteRow("Entries", existing.__row);
+  for (const rowNum of [...existing.__rows].sort((a, b) => b - a)) {
+    await sheetsClient.deleteRow("Entries", rowNum);
+  }
   return true;
 }
 
@@ -459,9 +498,7 @@ async function updateDriver(branchId, id, { name, active }) {
 
 async function driverHasEntries(branchId, id) {
   const rows = await sheetsClient.getRows("DeliveryEntries", DELIVERY_ENTRIES_HEADERS);
-  return rows
-    .filter((r) => r.branchId === branchId)
-    .some((r) => JSON.parse(r.driversJson || "[]").some((d) => d.driverId === id));
+  return rows.some((r) => r.branchId === branchId && r.driverId === id);
 }
 
 async function deleteDriver(branchId, id) {
@@ -514,39 +551,54 @@ function withDeliveryShares(entry, rates) {
   return { ...entry, shares: entry.drivers.map((d) => computeDeliveryPay(d, rates, isSolo)) };
 }
 
-function parseDeliveryEntryRow(r) {
-  return {
-    id: r.id,
-    branchId: r.branchId,
-    date: r.date,
-    driverCount: Number(r.driverCount) || 0,
-    drivers: JSON.parse(r.driversJson || "[]"),
-    __row: r.__row,
-  };
+// Regroups the Sheet's one-row-per-driver layout back into one entry object
+// per distinct entryId (the shape every caller above this layer expects).
+function groupDeliveryEntryRows(rows) {
+  const byEntryId = new Map();
+  for (const r of rows) {
+    if (!byEntryId.has(r.entryId)) byEntryId.set(r.entryId, []);
+    byEntryId.get(r.entryId).push(r);
+  }
+  return [...byEntryId.values()].map((group) => {
+    const first = group[0];
+    return {
+      id: first.entryId,
+      branchId: first.branchId,
+      date: first.date,
+      driverCount: Number(first.driverCount) || 0,
+      drivers: group.map((r) => ({
+        driverId: r.driverId,
+        hours: Number(r.hours) || 0,
+        zoneCounts: [Number(r.zone1Count) || 0, Number(r.zone2Count) || 0, Number(r.zone3Count) || 0, Number(r.zone4Count) || 0],
+        cashOrders: JSON.parse(r.cashOrdersJson || "[]"),
+        tips: Number(r.tips) || 0,
+        note: r.note || "",
+      })),
+      __rows: group.map((r) => r.__row),
+    };
+  });
 }
 
 async function listDeliveryEntries(branchId, { from, to } = {}) {
   const rates = await getBranchRates(branchId);
   const rows = await sheetsClient.getRows("DeliveryEntries", DELIVERY_ENTRIES_HEADERS);
-  return rows
-    .filter((r) => r.branchId === branchId)
-    .map(parseDeliveryEntryRow)
+  return groupDeliveryEntryRows(rows.filter((r) => r.branchId === branchId))
     .filter((e) => (!from || e.date >= from) && (!to || e.date <= to))
     .sort((a, b) => (a.date < b.date ? 1 : -1))
-    .map(({ __row, branchId: _b, ...e }) => withDeliveryShares(e, rates));
+    .map(({ __rows, branchId: _b, ...e }) => withDeliveryShares(e, rates));
 }
 
 async function findDeliveryEntryRow(branchId, id) {
   const rows = await sheetsClient.getRows("DeliveryEntries", DELIVERY_ENTRIES_HEADERS);
-  const found = rows.find((r) => r.branchId === branchId && r.id === id);
-  return found ? parseDeliveryEntryRow(found) : null;
+  const group = rows.filter((r) => r.branchId === branchId && r.entryId === id);
+  return group.length ? groupDeliveryEntryRows(group)[0] : null;
 }
 
 async function getDeliveryEntry(branchId, id) {
   const found = await findDeliveryEntryRow(branchId, id);
   if (!found) return null;
   const rates = await getBranchRates(branchId);
-  const { __row, branchId: _b, ...rest } = found;
+  const { __rows, branchId: _b, ...rest } = found;
   return withDeliveryShares(rest, rates);
 }
 
@@ -591,33 +643,48 @@ function validateDeliveryEntryInput(input, validDriverIds) {
   return { date: input.date, driverCount, drivers: cleanDrivers };
 }
 
+async function writeDeliveryEntryRows(entryId, branchId, clean, nameById) {
+  for (const d of clean.drivers) {
+    await sheetsClient.appendRow("DeliveryEntries", DELIVERY_ENTRIES_HEADERS, {
+      id: newId(),
+      entryId,
+      branchId,
+      date: clean.date,
+      driverCount: clean.driverCount,
+      driverId: d.driverId,
+      driverName: nameById.get(d.driverId) || "",
+      hours: d.hours,
+      zone1Count: d.zoneCounts[0],
+      zone2Count: d.zoneCounts[1],
+      zone3Count: d.zoneCounts[2],
+      zone4Count: d.zoneCounts[3],
+      tips: d.tips,
+      note: d.note,
+      cashOrdersJson: JSON.stringify(d.cashOrders),
+    });
+  }
+}
+
 async function addDeliveryEntry(branchId, input) {
   const drivers = await listDrivers(branchId, { includeInactive: true });
+  const nameById = new Map(drivers.map((d) => [d.id, d.name]));
   const clean = validateDeliveryEntryInput(input, new Set(drivers.map((d) => d.id)));
-  const id = newId();
-  await sheetsClient.appendRow("DeliveryEntries", DELIVERY_ENTRIES_HEADERS, {
-    id,
-    branchId,
-    date: clean.date,
-    driverCount: clean.driverCount,
-    driversJson: JSON.stringify(clean.drivers),
-  });
+  const entryId = newId();
+  await writeDeliveryEntryRows(entryId, branchId, clean, nameById);
   const rates = await getBranchRates(branchId);
-  return withDeliveryShares({ id, date: clean.date, driverCount: clean.driverCount, drivers: clean.drivers }, rates);
+  return withDeliveryShares({ id: entryId, date: clean.date, driverCount: clean.driverCount, drivers: clean.drivers }, rates);
 }
 
 async function updateDeliveryEntry(branchId, id, input) {
   const existing = await findDeliveryEntryRow(branchId, id);
   if (!existing) return null;
   const drivers = await listDrivers(branchId, { includeInactive: true });
+  const nameById = new Map(drivers.map((d) => [d.id, d.name]));
   const clean = validateDeliveryEntryInput(input, new Set(drivers.map((d) => d.id)));
-  await sheetsClient.updateRow("DeliveryEntries", DELIVERY_ENTRIES_HEADERS, existing.__row, {
-    id,
-    branchId,
-    date: clean.date,
-    driverCount: clean.driverCount,
-    driversJson: JSON.stringify(clean.drivers),
-  });
+  for (const rowNum of [...existing.__rows].sort((a, b) => b - a)) {
+    await sheetsClient.deleteRow("DeliveryEntries", rowNum);
+  }
+  await writeDeliveryEntryRows(id, branchId, clean, nameById);
   const rates = await getBranchRates(branchId);
   return withDeliveryShares({ id, date: clean.date, driverCount: clean.driverCount, drivers: clean.drivers }, rates);
 }
@@ -625,7 +692,9 @@ async function updateDeliveryEntry(branchId, id, input) {
 async function deleteDeliveryEntry(branchId, id) {
   const existing = await findDeliveryEntryRow(branchId, id);
   if (!existing) return false;
-  await sheetsClient.deleteRow("DeliveryEntries", existing.__row);
+  for (const rowNum of [...existing.__rows].sort((a, b) => b - a)) {
+    await sheetsClient.deleteRow("DeliveryEntries", rowNum);
+  }
   return true;
 }
 

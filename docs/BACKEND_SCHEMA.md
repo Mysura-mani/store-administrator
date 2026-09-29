@@ -34,31 +34,43 @@ One row per employee/driver. Identical shape for both:
 
 ## 3. `Entries` tab (Tip Sheet)
 
-One row per day's tip entry. `shiftsJson` holds the per-employee hours as a JSON array — the only
-place this app still uses a JSON-in-a-cell column, because an entry's shift list is variable-length
-and needs to round-trip exactly for editing (unlike a reporting export, this tab is live operational
-storage, so completeness wins over every column being individually chartable).
+One plain row per employee-shift — not one JSON-blob row per day. `entryId` groups the rows that
+make up a single saved entry back together (an entry with 3 employees working that day is 3 rows,
+all sharing the same `entryId`); `cashTips`/`creditTips` are the day's totals, repeated on every row
+for that `entryId` so each row is independently readable without cross-referencing anything else.
 
-| id | branchId | date | cashTips | creditTips | shiftsJson |
-|---|---|---|---|---|---|
-| `<uuid>` | `A` | `2026-09-28` | `30` | `10` | `[{"employeeId":"<uuid>","hours":5}]` |
+| id | entryId | branchId | date | employeeId | employeeName | hours | cashTips | creditTips |
+|---|---|---|---|---|---|---|---|---|
+| `<uuid>` | `<uuid>` | `A` | `2026-09-28` | `<uuid>` | `Alex` | `5` | `30` | `10` |
+
+`employeeName` is denormalized (copied in at save time) purely so the row means something at a
+glance without opening the `Employees` tab — it isn't kept in sync if the employee is later renamed,
+which is a feature here, not a bug: it's what the roster actually was on that day.
 
 `cashShare`/`creditShare` per employee are **computed on read** (`computeShares()` in
 `backend/lib/store.js`), proportional to hours worked that day — never stored, so they can't drift
-out of sync with `cashTips`/`creditTips`/`shiftsJson`.
+out of sync with `cashTips`/`creditTips`/the shift rows.
+
+Editing an entry (the set of employees/hours can change between saves) deletes every row for that
+`entryId` and re-appends fresh ones, rather than trying to update them one-for-one — see
+`writeEntryRows()`/`updateEntry()` in `backend/lib/store.js`.
 
 ## 4. `DeliveryEntries` tab (Delivery Payout)
 
-One row per day's delivery entry. `driversJson` holds the full per-driver detail as a JSON array —
-hours, per-zone delivery counts, raw cash-collection order amounts, tips, and an optional note.
+One plain row per driver-day, grouped back into an entry by `entryId` the same way as `Entries`
+above. Every field is its own column except `cashOrdersJson`: the individual cash-on-delivery order
+amounts a driver collected that shift are a genuinely variable-length list (could be zero orders or
+a dozen), so that one stays a small JSON array rather than an unbounded number of columns — it's
+needed verbatim (not just a count/total) so editing an entry can re-show each amount for correction.
 
-| id | branchId | date | driverCount | driversJson |
-|---|---|---|---|---|
-| `<uuid>` | `A` | `2026-09-28` | `1` | `[{"driverId":"<uuid>","hours":5,"zoneCounts":[3,0,0,0],"cashOrders":[10,20],"tips":5,"note":""}]` |
+| id | entryId | branchId | date | driverCount | driverId | driverName | hours | zone1Count | zone2Count | zone3Count | zone4Count | tips | note | cashOrdersJson |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `<uuid>` | `<uuid>` | `A` | `2026-09-28` | `1` | `<uuid>` | `Sam` | `5` | `3` | `0` | `0` | `0` | `5` | `` | `[10,20]` |
 
 `driverCount` is the *declared* headcount for the day (set up front, before any driver's individual
 details are filled in) — it's what decides the solo/multi minimum-wage rule, independent of how many
-driver rows have actually been saved so far (drivers can be saved one at a time as their shifts end).
+driver rows have actually been saved so far (drivers can be saved one at a time as their shifts end)
+— and is repeated on every row for that `entryId`, same as `cashTips`/`creditTips` above.
 
 `basePay`, `deliveryPay`, `finalPay`, `topUpApplied`, `cashOrderCount`, `cashOrderValue`
 (`computeDeliveryPay()` in `backend/lib/store.js`) are **computed on read** from the raw fields
@@ -94,12 +106,14 @@ panel):
 
 Every `id` (employee, driver, entry, delivery entry) is `crypto.randomUUID()`.
 
-## 7. Why one row per entry, not one row per employee-shift
+## 7. Why one row per employee-shift, not one JSON-blob row per entry
 
-An earlier iteration of this Sheet flattened `Entries`/`DeliveryEntries` to one row per
-employee-shift / driver-day with every field in its own column, optimized for pivoting directly in
-Sheets. Once the Sheet became this app's *only* datastore (not a reporting mirror alongside local
-files), round-trip fidelity for editing took priority — updating or deleting a multi-row entry via
-the Sheets API is materially more failure-prone (partial writes, row-index drift) than a single-row
-read/write/delete. The owner Analytics panel (§5) still gives the fully flattened, chartable view;
-it's just computed on demand rather than being the Sheet's own row layout.
+An earlier iteration of this app stored one row per day's entry, with the per-employee/per-driver
+detail packed into a `shiftsJson`/`driversJson` column — optimized for round-trip fidelity (a
+single-row update/delete is less failure-prone than juggling several rows) at the cost of the Sheet
+itself being unreadable to anyone who isn't the app. Since the whole point of this architecture is
+that the owner's data lives in a Sheet *they* can open and understand — not just a store the app
+happens to use — readability won out: every field that can reasonably be its own column now is one
+(see §3/§4), and editing an entry deletes and re-appends its rows rather than updating a single blob
+cell. The owner Analytics panel (§5) still gives the fully flattened, chartable view across
+branches; it's just computed on demand rather than being the only place this data is readable.

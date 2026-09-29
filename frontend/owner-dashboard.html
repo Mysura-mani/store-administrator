@@ -192,7 +192,8 @@
         const card = btn.closest(".store-card");
         const id = card.dataset.id;
         const store = stores.find((s) => s.id === id);
-        if (!confirm(`Delete "${store.name}"? This permanently removes its employees, drivers, and history. This cannot be undone.`)) return;
+        const ok = await confirmDialog(`Delete "${store.name}"? This permanently removes its employees, drivers, and history. This cannot be undone.`);
+        if (!ok) return;
         try {
           await api(`/api/owner/branches/${id}`, { method: "DELETE" });
           await loadStores();
