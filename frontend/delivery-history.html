@@ -54,6 +54,14 @@
             const payClass = d.isSolo ? (d.topUpApplied ? "pay-floor" : "pay-above") : "";
             const cashStr =
               d.cashOrderCount > 0 || d.cashOrderValue > 0 ? `${d.cashOrderCount} / ${formatMoney(d.cashOrderValue)}` : "—";
+            // Only today's payout can be corrected (see requireTodayEntry on
+            // the backend) — and only from the Daily view, never from an
+            // expanded day inside Weekly/Monthly/Quarterly, so Edit never
+            // shows up somewhere it would just 403 anyway.
+            const canEdit = mode === "day" && d.date === todayStr();
+            const editBtn = canEdit
+              ? `<button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}" data-driver="${row.driverId}">Edit</button>`
+              : "";
             return `
               <tr class="day-subtable" data-owner="${row.driverId}" style="display:none">
                 <td>${d.date}<br /><span class="hint">${zoneStr}${noteStr}</span></td>
@@ -63,7 +71,7 @@
                 <td>${formatMoney(d.tips)}</td>
                 <td class="${payClass}">${formatMoney(d.finalPay)}</td>
                 <td>${cashStr}
-                  <button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}">Edit</button>
+                  ${editBtn}
                   <button class="btn-danger btn-small delete-day-btn" data-id="${d.entryId}">Delete</button>
                 </td>
               </tr>
@@ -122,7 +130,7 @@
 
     wrap.querySelectorAll(".edit-day-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
-        window.location.href = `/delivery-entry.html?edit=${btn.dataset.id}`;
+        window.location.href = `/delivery-entry.html?edit=${btn.dataset.id}&driver=${btn.dataset.driver}`;
       });
     });
 

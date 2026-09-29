@@ -16,7 +16,7 @@
 
     <form id="delivery-form">
       <input type="hidden" id="entry-id" />
-      <div class="row" style="max-width:420px">
+      <div class="row" id="date-count-row" style="max-width:420px">
         <div>
           <label for="date">Date</label>
           <input type="date" id="date" required />
@@ -33,6 +33,7 @@
         <button type="submit" class="btn-primary" id="submit-btn">Submit</button>
         <button type="button" class="btn-secondary" id="edit-btn" style="display:none">Edit</button>
         <button type="button" class="btn-secondary" id="cancel-edit" style="display:none">Reset</button>
+        <button type="button" class="btn-secondary" id="back-to-history-btn" style="display:none">Back to Delivery History</button>
         <span id="global-status"></span>
       </div>
     </form>
@@ -43,6 +44,10 @@
 <script>
   let drivers = [];
   let rates = null;
+  // Set only when reached via Delivery History's per-driver "Edit" link —
+  // swaps the whole-day multi-driver form for a single locked-to-one-driver
+  // correction with just a Submit button (see loadForSingleDriverEdit).
+  let singleDriverEdit = null;
 
   function driverOptionsHtml(selectedId) {
     return drivers.map((d) => `<option value="${escapeHtml(d.id)}" ${d.id === selectedId ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("");
@@ -206,6 +211,18 @@
 
   async function saveEntry(statusEl) {
     statusEl.textContent = "";
+    if (singleDriverEdit) {
+      try {
+        await api(`/api/delivery-entries/${singleDriverEdit.entryId}/driver/${singleDriverEdit.driverId}`, {
+          method: "PUT",
+          body: JSON.stringify(readDriverCards()[0]),
+        });
+        setStatus(statusEl, "Saved.", false);
+      } catch (err) {
+        setStatus(statusEl, err.message, true);
+      }
+      return;
+    }
     const payload = {
       date: document.getElementById("date").value,
       driverCount: Number(document.getElementById("driver-count").value) || 0,
@@ -253,6 +270,46 @@
     setFormLocked(true);
   }
 
+  // Reached only via Delivery History's per-driver "Edit" link. Shows just
+  // that one driver's card, already unlocked, with the driver fixed (this is
+  // a correction, not a reassignment) and no Edit/Reset toggle — Submit is
+  // the only option. The backend rejects this outright if the entry isn't
+  // today's (see requireTodayEntry), so that's checked here too rather than
+  // showing a form that can only ever fail to save.
+  async function loadForSingleDriverEdit(entryId, driverId) {
+    const entry = await api(`/api/delivery-entries/${entryId}`);
+    const driverData = entry.drivers.find((d) => d.driverId === driverId);
+    if (!driverData) throw new Error("That driver's entry for this day was not found.");
+    if (entry.date !== todayStr()) {
+      throw new Error("Only today's entry can be edited.");
+    }
+    singleDriverEdit = { entryId, driverId };
+    const driverName = (drivers.find((d) => d.id === driverId) || {}).name || "";
+    document.getElementById("form-title").textContent = driverName
+      ? `Edit ${driverName}'s payout — ${entry.date}`
+      : `Edit driver payout — ${entry.date}`;
+    document.getElementById("date-count-row").style.display = "none";
+    // Hiding the row doesn't exempt the date field from the form's required
+    // validation (browsers still block submission on it), so drop the
+    // attribute outright rather than leave a submit button that silently
+    // does nothing.
+    document.getElementById("date").required = false;
+    document.getElementById("entry-id").value = entry.id;
+    // Hidden, but recalcAllTotals still reads this to know whether the day
+    // this driver worked was solo (for the minimum-wage top-up) — it must
+    // reflect the real day's driver count, not just "there's one card here".
+    document.getElementById("driver-count").value = entry.driverCount || 1;
+    document.getElementById("driver-cards").innerHTML = "";
+    const card = createDriverCard(0, driverData);
+    card.querySelector(".d-driver").disabled = true;
+    document.getElementById("driver-cards").appendChild(card);
+    recalcAllTotals();
+    document.getElementById("edit-btn").style.display = "none";
+    document.getElementById("cancel-edit").style.display = "none";
+    document.getElementById("back-to-history-btn").style.display = "inline-block";
+    document.getElementById("submit-btn").style.display = "inline-block";
+  }
+
   // Looks up whether the selected date already has a (possibly partial)
   // entry saved and loads it, so a driver saved earlier in the day is still
   // there when someone comes back to add the next driver later.
@@ -286,7 +343,10 @@
 
       const params = new URLSearchParams(window.location.search);
       const editId = params.get("edit");
-      if (editId) {
+      const driverId = params.get("driver");
+      if (editId && driverId) {
+        await loadForSingleDriverEdit(editId, driverId);
+      } else if (editId) {
         await loadForEdit(editId);
       } else {
         document.getElementById("date").value = todayStr();
@@ -326,6 +386,10 @@
   document.getElementById("edit-btn").addEventListener("click", () => {
     setFormLocked(false);
     setStatus(document.getElementById("global-status"), "", false);
+  });
+
+  document.getElementById("back-to-history-btn").addEventListener("click", () => {
+    window.location.href = "/delivery-history.html";
   });
 
   document.getElementById("delivery-form").addEventListener("submit", (e) => {

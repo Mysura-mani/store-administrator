@@ -663,6 +663,29 @@ async function getDeliveryEntry(branchId, id) {
   return withDeliveryShares(rest, rates);
 }
 
+// Parses/validates one driver's own fields (zones/cash/tips/note) shared by
+// both the whole-day form (which silently skips a driver row that isn't
+// filled in yet) and a single-driver correction (which must not be empty) —
+// each decides that "skip vs. reject" question on its own before calling in.
+function parseDeliveryDriverFields(d) {
+  const rawCounts = Array.isArray(d.zoneCounts) ? d.zoneCounts : [0, 0, 0, 0];
+  const zoneCounts = [0, 1, 2, 3].map((i) => {
+    const n = Number(rawCounts[i]) || 0;
+    if (!Number.isFinite(n) || n < 0) throw new Error("Delivery counts must be non-negative numbers.");
+    return n;
+  });
+  const rawCashOrders = Array.isArray(d.cashOrders) ? d.cashOrders : [];
+  const cashOrders = rawCashOrders.map((v) => {
+    const n = Number(v) || 0;
+    if (!Number.isFinite(n) || n < 0) throw new Error("Cash order values must be non-negative numbers.");
+    return n;
+  });
+  const tips = Number(d.tips) || 0;
+  if (!Number.isFinite(tips) || tips < 0) throw new Error("Tips must be a non-negative number.");
+  const note = typeof d.note === "string" ? d.note.trim().slice(0, 500) : "";
+  return { zoneCounts, cashOrders, tips, note };
+}
+
 // `validDriverIds` scopes accepted rows to this branch's own driver list
 // (active or inactive) so a delivery entry can never end up referencing
 // another branch's driver.
@@ -683,25 +706,21 @@ function validateDeliveryEntryInput(input, validDriverIds) {
     if (!d || !d.driverId || !validDriverIds.has(d.driverId)) continue;
     const hours = Number(d.hours);
     if (!Number.isFinite(hours) || hours <= 0) continue;
-    const rawCounts = Array.isArray(d.zoneCounts) ? d.zoneCounts : [0, 0, 0, 0];
-    const zoneCounts = [0, 1, 2, 3].map((i) => {
-      const n = Number(rawCounts[i]) || 0;
-      if (!Number.isFinite(n) || n < 0) throw new Error("Delivery counts must be non-negative numbers.");
-      return n;
-    });
-    const rawCashOrders = Array.isArray(d.cashOrders) ? d.cashOrders : [];
-    const cashOrders = rawCashOrders.map((v) => {
-      const n = Number(v) || 0;
-      if (!Number.isFinite(n) || n < 0) throw new Error("Cash order values must be non-negative numbers.");
-      return n;
-    });
-    const tips = Number(d.tips) || 0;
-    if (!Number.isFinite(tips) || tips < 0) throw new Error("Tips must be a non-negative number.");
-    const note = typeof d.note === "string" ? d.note.trim().slice(0, 500) : "";
-    cleanDrivers.push({ driverId: d.driverId, hours, zoneCounts, cashOrders, tips, note });
+    cleanDrivers.push({ driverId: d.driverId, hours, ...parseDeliveryDriverFields(d) });
   }
   if (cleanDrivers.length === 0) throw new Error("Enter at least one driver's hours before saving.");
   return { date: input.date, driverCount, drivers: cleanDrivers };
+}
+
+// Same field rules as above, but for correcting a single driver's already-
+// saved day: an empty/invalid submission is rejected outright rather than
+// silently skipped, since there's nothing else in this request to fall back
+// on.
+function validateSingleDeliveryDriverInput(d, validDriverIds) {
+  if (!d || !d.driverId || !validDriverIds.has(d.driverId)) throw new Error("Choose a driver.");
+  const hours = Number(d.hours);
+  if (!Number.isFinite(hours) || hours <= 0) throw new Error("Enter this driver's hours before saving.");
+  return { driverId: d.driverId, hours, ...parseDeliveryDriverFields(d) };
 }
 
 async function writeDeliveryEntryRows(entryId, branchId, clean, nameById) {
@@ -757,6 +776,45 @@ async function deleteDeliveryEntry(branchId, id) {
     await sheetsClient.deleteRow("DeliveryEntries", rowNum);
   }
   return true;
+}
+
+// Finds one driver's own row within a day's entry — unlike
+// findDeliveryEntryRow (which groups every driver sharing an entryId
+// together), this targets exactly the row a single-driver correction needs
+// to replace, without touching any other driver's row for that same day.
+async function findDeliveryEntryDriverRow(branchId, entryId, driverId) {
+  const rows = await sheetsClient.getRows("DeliveryEntries", DELIVERY_ENTRIES_HEADERS);
+  return rows.find((r) => r.branchId === branchId && r.entryId === entryId && r.driverId === driverId) || null;
+}
+
+// Corrects one driver's already-saved day within a (possibly multi-driver)
+// entry, leaving every other driver's row for that day untouched — the
+// Delivery History "Edit" link's target, since re-submitting the whole-day
+// form with just one driver in it would otherwise wipe the others.
+async function updateDeliveryEntryDriver(branchId, entryId, driverId, input) {
+  const row = await findDeliveryEntryDriverRow(branchId, entryId, driverId);
+  if (!row) return null;
+  const drivers = await listDrivers(branchId, { includeInactive: true });
+  const clean = validateSingleDeliveryDriverInput({ ...input, driverId }, new Set(drivers.map((d) => d.id)));
+  const driverRecord = drivers.find((d) => d.id === driverId);
+  await sheetsClient.updateRow("DeliveryEntries", DELIVERY_ENTRIES_HEADERS, row.__row, {
+    id: row.id,
+    entryId: row.entryId,
+    branchId: row.branchId,
+    date: row.date,
+    driverCount: row.driverCount,
+    driverId,
+    driverName: driverRecord ? driverRecord.name : row.driverName,
+    hours: clean.hours,
+    zone1Count: clean.zoneCounts[0],
+    zone2Count: clean.zoneCounts[1],
+    zone3Count: clean.zoneCounts[2],
+    zone4Count: clean.zoneCounts[3],
+    tips: clean.tips,
+    note: clean.note,
+    cashOrdersJson: JSON.stringify(clean.cashOrders),
+  });
+  return getDeliveryEntry(branchId, entryId);
 }
 
 // ---------- calendar-date helpers (UTC-anchored so there is no timezone drift) ----------
@@ -1178,6 +1236,7 @@ module.exports = {
   getDeliveryEntry,
   addDeliveryEntry,
   updateDeliveryEntry,
+  updateDeliveryEntryDriver,
   deleteDeliveryEntry,
   buildDeliveryHistory,
   formatDateStr,

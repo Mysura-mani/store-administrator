@@ -258,6 +258,22 @@ function requireAdminForPastEdit(getEntryFn) {
   });
 }
 
+// Delivery payouts: nobody, regardless of role, can edit anything but
+// today's entry — there's no admin escape hatch here the way there is for
+// the Tip Sheet above. A correction to an older day has to go through the
+// owner/admin adjusting pay directly rather than rewriting history.
+function requireTodayEntry(getEntryFn) {
+  return ah(async (req, res, next) => {
+    const existing = await getEntryFn(req.session.branchId, req.params.id);
+    if (!existing) return res.status(404).json({ error: "Entry not found." });
+    const today = store.formatDateStr(new Date());
+    if (existing.date !== today) {
+      return res.status(403).json({ error: "Only today's entry can be edited." });
+    }
+    next();
+  });
+}
+
 // ---------- branches & auth ----------
 
 app.get("/api/branches", ah(async (req, res) => {
@@ -739,15 +755,33 @@ app.post("/api/delivery-entries", requireAuth, ah(async (req, res) => {
   }
 }));
 
-// Any branch staff can edit/delete a delivery entry regardless of date —
-// unlike the Tip Sheet's entries, which still require admin for a past-date
-// correction (see requireAdminForPastEdit above).
+// Any branch staff can edit a delivery entry (no admin requirement, unlike
+// the Tip Sheet's entries) but only for today — see requireTodayEntry above.
 app.put(
   "/api/delivery-entries/:id",
   requireAuth,
+  requireTodayEntry(store.getDeliveryEntry),
   ah(async (req, res) => {
     try {
       const updated = await store.updateDeliveryEntry(req.session.branchId, req.params.id, req.body || {});
+      if (!updated) return res.status(404).json({ error: "Entry not found." });
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  })
+);
+
+// Corrects a single driver's day within an entry (e.g. the Delivery History
+// "Edit" link) without touching any other driver sharing that same day —
+// see store.updateDeliveryEntryDriver.
+app.put(
+  "/api/delivery-entries/:id/driver/:driverId",
+  requireAuth,
+  requireTodayEntry(store.getDeliveryEntry),
+  ah(async (req, res) => {
+    try {
+      const updated = await store.updateDeliveryEntryDriver(req.session.branchId, req.params.id, req.params.driverId, req.body || {});
       if (!updated) return res.status(404).json({ error: "Entry not found." });
       res.json(updated);
     } catch (err) {
