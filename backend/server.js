@@ -739,10 +739,12 @@ app.post("/api/delivery-entries", requireAuth, ah(async (req, res) => {
   }
 }));
 
+// Any branch staff can edit/delete a delivery entry regardless of date —
+// unlike the Tip Sheet's entries, which still require admin for a past-date
+// correction (see requireAdminForPastEdit above).
 app.put(
   "/api/delivery-entries/:id",
   requireAuth,
-  requireAdminForPastEdit((branchId, id) => store.getDeliveryEntry(branchId, id)),
   ah(async (req, res) => {
     try {
       const updated = await store.updateDeliveryEntry(req.session.branchId, req.params.id, req.body || {});
@@ -757,7 +759,6 @@ app.put(
 app.delete(
   "/api/delivery-entries/:id",
   requireAuth,
-  requireAdminForPastEdit((branchId, id) => store.getDeliveryEntry(branchId, id)),
   ah(async (req, res) => {
     const deleted = await store.deleteDeliveryEntry(req.session.branchId, req.params.id);
     if (!deleted) return res.status(404).json({ error: "Entry not found." });

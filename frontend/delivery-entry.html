@@ -306,8 +306,21 @@
 
   document.getElementById("date").addEventListener("change", (e) => loadForDate(e.target.value));
 
+  // A plain page reload here would just re-trigger loadForDate() for
+  // today's date, which finds and reloads today's entry again if one
+  // already exists — making Reset look like it does nothing. So this
+  // clears the form directly instead, without asking "does today already
+  // have an entry" at all.
   document.getElementById("cancel-edit").addEventListener("click", () => {
-    window.location.href = "/delivery-entry.html";
+    document.getElementById("entry-id").value = "";
+    document.getElementById("form-title").textContent = "Log a day's deliveries";
+    document.getElementById("date").value = todayStr();
+    document.getElementById("driver-count").value = 1;
+    document.getElementById("driver-cards").innerHTML = "";
+    document.getElementById("cancel-edit").style.display = "none";
+    setFormLocked(false);
+    syncDriverCount(1);
+    setStatus(document.getElementById("global-status"), "", false);
   });
 
   document.getElementById("edit-btn").addEventListener("click", () => {

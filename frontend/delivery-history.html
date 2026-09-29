@@ -35,7 +35,6 @@
 <script>
   let mode = "week";
   let anchor = todayStr();
-  let isAdmin = false;
 
   function renderTable(history) {
     document.getElementById("period-label").textContent = history.label;
@@ -63,12 +62,10 @@
                 <td>${formatMoney(d.deliveryPay)}</td>
                 <td>${formatMoney(d.tips)}</td>
                 <td class="${payClass}">${formatMoney(d.finalPay)}</td>
-                <td>${cashStr} ${
-                  isAdmin
-                    ? `<button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}">Edit</button>
-                       <button class="btn-danger btn-small delete-day-btn" data-id="${d.entryId}">Delete</button>`
-                    : ""
-                }</td>
+                <td>${cashStr}
+                  <button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}">Edit</button>
+                  <button class="btn-danger btn-small delete-day-btn" data-id="${d.entryId}">Delete</button>
+                </td>
               </tr>
             `;
           })
@@ -179,7 +176,6 @@
   (async () => {
     const session = await requireSession();
     if (!session) return;
-    isAdmin = session.role === "admin";
     renderShell(session, "/delivery-history.html", "delivery");
     await load();
   })();

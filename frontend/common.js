@@ -20,6 +20,18 @@ async function api(path, options = {}) {
       window.location.href = "/setup.html";
       return new Promise(() => {}); // navigation is already underway — don't also resolve/reject
     }
+    // A session that's missing/expired/for the wrong role — e.g. another tab
+    // on the same browser logged into a different branch, which replaces the
+    // one shared session cookie out from under this tab. Specifically the
+    // "not_authenticated" string every requireAuth-style middleware returns,
+    // never a wrong-password rejection from an in-context check (elevate
+    // admin, change password, ...), which has its own distinct message and
+    // must stay inline instead of bouncing the user away from what they were
+    // doing.
+    if (res.status === 401 && body && body.error === "not_authenticated" && !window.location.pathname.endsWith("/login.html")) {
+      window.location.href = "/login.html";
+      return new Promise(() => {});
+    }
     const err = new Error((body && body.error) || `Request failed (${res.status})`);
     err.status = res.status;
     err.body = body;
