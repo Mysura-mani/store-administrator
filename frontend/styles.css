@@ -68,6 +68,8 @@ input, select, .cdd-trigger {
   color: var(--text);
 }
 
+input:disabled, select:disabled { background: #f3f4f6; color: var(--muted); cursor: not-allowed; }
+
 input:focus, select:focus, .cdd-trigger:focus { outline: 2px solid var(--primary); outline-offset: 0; border-color: var(--primary); }
 
 /* ---------- custom dropdown (replaces native <select> popups) ---------- */
