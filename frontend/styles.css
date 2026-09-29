@@ -334,17 +334,6 @@ tbody tr:hover { background: #fafbfc; }
 .cash-order-box { min-width: 90px; }
 .cash-order-box label { font-size: 11px; margin-top: 0; margin-bottom: 4px; }
 
-.driver-save-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px dashed var(--border);
-}
-.driver-save-row .error-msg,
-.driver-save-row .success-msg { margin-top: 0; min-height: auto; }
-
 .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .preset-row button { background: #fff; border: 1px solid var(--border); color: var(--text); padding: 7px 12px; }
 .preset-row button.active { background: var(--primary); color: #fff; border-color: var(--primary); }

@@ -12,7 +12,7 @@
 
   <div class="card">
     <h2 id="form-title">Log a day's deliveries</h2>
-    <p class="subtitle">Say how many drivers worked, then fill in each driver's hours, deliveries, and any cash orders they took. Each driver can be saved on their own as soon as their shift is done — you don't need everyone's details at once.</p>
+    <p class="subtitle">Say how many drivers worked, then fill in each driver's hours, deliveries, and any cash orders they took.</p>
 
     <form id="delivery-form">
       <input type="hidden" id="entry-id" />
@@ -30,7 +30,7 @@
       <div id="driver-cards" style="margin-top:20px"></div>
 
       <div style="display:flex; align-items:center; gap:14px; margin-top:8px">
-        <button type="submit" class="btn-primary">Save entry</button>
+        <button type="submit" class="btn-primary">Send for review</button>
         <button type="button" class="btn-secondary" id="cancel-edit" style="display:none">Cancel edit</button>
         <span id="global-status"></span>
       </div>
@@ -103,10 +103,6 @@
         <div class="cash-order-values"></div>
         <p class="hint">Cash to return: <strong class="cash-return-amount">&euro;0.00</strong></p>
       </div>
-      <div class="driver-save-row">
-        <button type="button" class="btn-secondary driver-save-btn">Save this driver</button>
-        <span class="driver-save-status"></span>
-      </div>
     `;
 
     card.querySelectorAll(".d-hours, .d-zone, .d-tips").forEach((input) => input.addEventListener("input", recalcAllTotals));
@@ -114,7 +110,6 @@
     cashCountInput.addEventListener("input", () => {
       renderCashOrderInputs(card, Math.max(0, Math.floor(Number(cashCountInput.value) || 0)));
     });
-    card.querySelector(".driver-save-btn").addEventListener("click", () => saveEntry(card.querySelector(".driver-save-status")));
 
     renderCashOrderInputs(card, cashOrders.length, cashOrders);
     return card;
@@ -196,10 +191,6 @@
     el.className = isError ? "error-msg" : "success-msg";
   }
 
-  // Saves whatever is currently in the form. Used by both the per-driver
-  // "Save this driver" buttons and the main "Save entry" button, so a driver
-  // who has already finished can be saved right away while others are still
-  // out on shift — no need to wait for everyone before saving anything.
   async function saveEntry(statusEl) {
     statusEl.textContent = "";
     const payload = {

@@ -63,7 +63,12 @@
                 <td>${formatMoney(d.deliveryPay)}</td>
                 <td>${formatMoney(d.tips)}</td>
                 <td class="${payClass}">${formatMoney(d.finalPay)}</td>
-                <td>${cashStr} ${isAdmin ? `<button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}">Edit</button>` : ""}</td>
+                <td>${cashStr} ${
+                  isAdmin
+                    ? `<button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}">Edit</button>
+                       <button class="btn-danger btn-small delete-day-btn" data-id="${d.entryId}">Delete</button>`
+                    : ""
+                }</td>
               </tr>
             `;
           })
@@ -121,6 +126,19 @@
     wrap.querySelectorAll(".edit-day-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         window.location.href = `/delivery-entry.html?edit=${btn.dataset.id}`;
+      });
+    });
+
+    wrap.querySelectorAll(".delete-day-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const ok = await confirmDialog("Are you sure you want to delete this record? This cannot be undone.");
+        if (!ok) return;
+        try {
+          await api(`/api/delivery-entries/${btn.dataset.id}`, { method: "DELETE" });
+          await load();
+        } catch (err) {
+          alert(err.message);
+        }
       });
     });
   }
