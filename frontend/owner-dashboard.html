@@ -583,6 +583,14 @@
     document.getElementById("store-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const errorEl = document.getElementById("store-form-error");
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      // Branches are stored as one shared JSON value (read, modified, written
+      // back whole) — two overlapping saves race and one silently clobbers
+      // the other with no error to either side. A double-click on "Save
+      // changes" is the easiest way to trigger that, so block it here rather
+      // than leave a save that looks fine but quietly loses a password.
+      if (submitBtn.disabled) return;
+      submitBtn.disabled = true;
       errorEl.textContent = "";
       const name = document.getElementById("store-name").value;
       const staffPassword = document.getElementById("store-staff-password").value;
@@ -600,6 +608,7 @@
         await loadStores();
       } catch (err) {
         errorEl.textContent = err.message;
+        submitBtn.disabled = false;
       }
     });
   }
