@@ -725,18 +725,29 @@ app.get("/api/delivery-history", requireAuth, ah(async (req, res) => {
 
 // ---------- rates ----------
 
+// Read-only for branch staff/admin — driver pay rates are set by the owner
+// only (see /api/owner/rates below), since minimum wage in particular is a
+// government-set figure the whole business is equally subject to.
 app.get("/api/rates", requireAuth, ah(async (req, res) => {
   res.json(await store.getBranchRates(req.session.branchId));
 }));
 
-app.put("/api/rates", requireAuth, requireAdmin, ah(async (req, res) => {
+app.get("/api/owner/rates", requireOwner, ah(async (req, res) => {
+  res.json(await store.getGlobalRates());
+}));
+
+app.put("/api/owner/rates", requireOwner, ah(async (req, res) => {
   const { driverHourlyRate, minimumWage, zoneRates } = req.body || {};
-  const updated = await store.updateBranchRates(req.session.branchId, {
-    driverHourlyRate: Number(driverHourlyRate),
-    minimumWage: Number(minimumWage),
-    zoneRates: Array.isArray(zoneRates) ? zoneRates.map(Number) : undefined,
-  });
-  res.json(updated);
+  try {
+    await store.setGlobalRates({
+      driverHourlyRate: Number(driverHourlyRate),
+      minimumWage: Number(minimumWage),
+      zoneRates: Array.isArray(zoneRates) ? zoneRates.map(Number) : [],
+    });
+    res.json(await store.getGlobalRates());
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 }));
 
 // ---------- settings ----------

@@ -148,6 +148,31 @@ async function setOwnerGoogleEmail(email) {
   await setConfigValue("ownerGoogleEmail", email ? email.trim().toLowerCase() : "");
 }
 
+// Driver pay rates (minimum wage, hourly rate, per-zone delivery rates) are
+// a single owner-set value shared by every branch — not per-branch — since
+// minimum wage in particular is a government-set figure the whole business
+// is equally subject to, not something that should vary by location or be
+// left to a branch admin to configure. See computeDeliveryPay() for how
+// these feed into a driver's pay.
+async function getGlobalRates() {
+  const cfg = await getConfig();
+  if (!cfg.globalRates) return { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] };
+  return JSON.parse(cfg.globalRates);
+}
+
+async function setGlobalRates({ driverHourlyRate, minimumWage, zoneRates }) {
+  if (!Number.isFinite(driverHourlyRate) || driverHourlyRate < 0) {
+    throw new Error("Driver hourly rate must be a non-negative number.");
+  }
+  if (!Number.isFinite(minimumWage) || minimumWage < 0) {
+    throw new Error("Minimum wage must be a non-negative number.");
+  }
+  if (!Array.isArray(zoneRates) || zoneRates.length !== 4 || !zoneRates.every((r) => Number.isFinite(r) && r >= 0)) {
+    throw new Error("All 4 zone rates must be non-negative numbers.");
+  }
+  await setConfigValue("globalRates", JSON.stringify({ driverHourlyRate, minimumWage, zoneRates }));
+}
+
 // Off by default — the Sheet only ever grows by the owner's own explicit
 // choice, never surprises them by deleting history on its own.
 async function getAutoDeleteOldEntries() {
@@ -189,7 +214,6 @@ async function createBranch({ name, staffPassword, adminPassword }) {
     name: name.trim(),
     staffPasswordHash: bcrypt.hashSync(staffPassword, 10),
     adminPasswordHash: bcrypt.hashSync(adminPassword, 10),
-    rates: { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] },
   };
   branches.push(branch);
   await saveBranches(branches);
@@ -265,27 +289,11 @@ async function updateBranchAdminPassword(branchId, newPassword) {
   return true;
 }
 
+// branchId is accepted (and every caller still passes one) purely so this
+// reads the same everywhere delivery pay is computed — the rates
+// themselves are global; see getGlobalRates().
 async function getBranchRates(branchId) {
-  const branch = await getBranchConfig(branchId);
-  if (!branch) return null;
-  return branch.rates || { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] };
-}
-
-async function updateBranchRates(branchId, { driverHourlyRate, minimumWage, zoneRates }) {
-  const cfg = await getConfig();
-  const branches = cfg.branches || [];
-  const branch = branches.find((b) => b.id === branchId);
-  if (!branch) return null;
-  const current = branch.rates || { ...DEFAULT_RATES, zoneRates: [...DEFAULT_RATES.zoneRates] };
-  const next = { ...current };
-  if (Number.isFinite(driverHourlyRate) && driverHourlyRate >= 0) next.driverHourlyRate = driverHourlyRate;
-  if (Number.isFinite(minimumWage) && minimumWage >= 0) next.minimumWage = minimumWage;
-  if (Array.isArray(zoneRates) && zoneRates.length === 4 && zoneRates.every((r) => Number.isFinite(r) && r >= 0)) {
-    next.zoneRates = zoneRates;
-  }
-  branch.rates = next;
-  await saveBranches(branches);
-  return next;
+  return getGlobalRates();
 }
 
 // ---------- employees ----------
@@ -1093,7 +1101,8 @@ module.exports = {
   updateBranchStaffPassword,
   updateBranchAdminPassword,
   getBranchRates,
-  updateBranchRates,
+  getGlobalRates,
+  setGlobalRates,
   listEmployees,
   addEmployee,
   updateEmployee,

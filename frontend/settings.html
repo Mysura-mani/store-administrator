@@ -36,42 +36,6 @@
     </form>
   </div>
 
-  <div class="card" style="max-width:480px">
-    <h2>Delivery rates</h2>
-    <p class="subtitle">Used to calculate driver pay. The minimum wage is the government-set floor — update it whenever it changes.</p>
-    <form id="rates-form">
-      <label for="minimum-wage">Minimum wage (&euro;/hour)</label>
-      <input type="number" id="minimum-wage" min="0" step="0.01" required />
-
-      <label for="hourly-rate">Driver hourly rate (&euro;/hour)</label>
-      <input type="number" id="hourly-rate" min="0" step="0.01" required />
-
-      <div class="row" style="margin-top:14px">
-        <div>
-          <label for="zone-1">Zone 1 rate (&euro;)</label>
-          <input type="number" id="zone-1" min="0" step="0.01" required />
-        </div>
-        <div>
-          <label for="zone-2">Zone 2 rate (&euro;)</label>
-          <input type="number" id="zone-2" min="0" step="0.01" required />
-        </div>
-      </div>
-      <div class="row">
-        <div>
-          <label for="zone-3">Zone 3 rate (&euro;)</label>
-          <input type="number" id="zone-3" min="0" step="0.01" required />
-        </div>
-        <div>
-          <label for="zone-4">Zone 4 rate (&euro;)</label>
-          <input type="number" id="zone-4" min="0" step="0.01" required />
-        </div>
-      </div>
-
-      <button type="submit" class="btn-primary" style="margin-top:14px">Update rates</button>
-      <div class="error-msg" id="rates-error"></div>
-      <div class="success-msg" id="rates-success"></div>
-    </form>
-  </div>
 </div>
 
 <script src="/common.js"></script>
@@ -80,41 +44,7 @@
     const session = await requireSession("admin");
     if (!session) return;
     renderShell(session, "/settings.html");
-
-    const rates = await api("/api/rates");
-    document.getElementById("minimum-wage").value = rates.minimumWage;
-    document.getElementById("hourly-rate").value = rates.driverHourlyRate;
-    document.getElementById("zone-1").value = rates.zoneRates[0];
-    document.getElementById("zone-2").value = rates.zoneRates[1];
-    document.getElementById("zone-3").value = rates.zoneRates[2];
-    document.getElementById("zone-4").value = rates.zoneRates[3];
   })();
-
-  document.getElementById("rates-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const errorEl = document.getElementById("rates-error");
-    const successEl = document.getElementById("rates-success");
-    errorEl.textContent = "";
-    successEl.textContent = "";
-    try {
-      await api("/api/rates", {
-        method: "PUT",
-        body: JSON.stringify({
-          minimumWage: Number(document.getElementById("minimum-wage").value),
-          driverHourlyRate: Number(document.getElementById("hourly-rate").value),
-          zoneRates: [
-            Number(document.getElementById("zone-1").value),
-            Number(document.getElementById("zone-2").value),
-            Number(document.getElementById("zone-3").value),
-            Number(document.getElementById("zone-4").value),
-          ],
-        }),
-      });
-      successEl.textContent = "Rates updated.";
-    } catch (err) {
-      errorEl.textContent = err.message;
-    }
-  });
 
   document.getElementById("staff-pw-form").addEventListener("submit", async (e) => {
     e.preventDefault();

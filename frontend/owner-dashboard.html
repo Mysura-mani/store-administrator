@@ -104,6 +104,46 @@
       </div>
 
       <div class="card" style="max-width:440px; margin-top:20px">
+        <h2>Driver's Payment</h2>
+        <p class="subtitle">
+          Used to calculate every branch's driver pay. The minimum wage is the government-set floor
+          — update it here whenever it changes, and it applies everywhere immediately.
+        </p>
+        <form id="rates-form">
+          <label for="owner-minimum-wage">Minimum wage (&euro;/hour)</label>
+          <input type="number" id="owner-minimum-wage" min="0" step="0.01" required />
+
+          <label for="owner-hourly-rate">Driver hourly rate (&euro;/hour)</label>
+          <input type="number" id="owner-hourly-rate" min="0" step="0.01" required />
+
+          <div class="row" style="margin-top:14px">
+            <div>
+              <label for="owner-zone-1">Zone 1 rate (&euro;)</label>
+              <input type="number" id="owner-zone-1" min="0" step="0.01" required />
+            </div>
+            <div>
+              <label for="owner-zone-2">Zone 2 rate (&euro;)</label>
+              <input type="number" id="owner-zone-2" min="0" step="0.01" required />
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label for="owner-zone-3">Zone 3 rate (&euro;)</label>
+              <input type="number" id="owner-zone-3" min="0" step="0.01" required />
+            </div>
+            <div>
+              <label for="owner-zone-4">Zone 4 rate (&euro;)</label>
+              <input type="number" id="owner-zone-4" min="0" step="0.01" required />
+            </div>
+          </div>
+
+          <button type="submit" class="btn-primary" style="margin-top:14px">Update rates</button>
+          <div class="error-msg" id="rates-error"></div>
+          <div class="success-msg" id="rates-success"></div>
+        </form>
+      </div>
+
+      <div class="card" style="max-width:440px; margin-top:20px">
         <h2>Sign in with Google</h2>
         <p class="subtitle" id="google-status-text">Checking status&hellip;</p>
         <form id="google-email-form">
@@ -159,6 +199,7 @@
         loadGoogleConfig();
         loadSheetsStatus();
         loadAutoDeleteSetting();
+        loadRates();
       }
     });
   });
@@ -669,6 +710,46 @@
       }
     } catch (err) {
       e.target.checked = !enabled;
+      errorEl.textContent = err.message;
+    }
+  });
+
+  async function loadRates() {
+    try {
+      const rates = await api("/api/owner/rates");
+      document.getElementById("owner-minimum-wage").value = rates.minimumWage;
+      document.getElementById("owner-hourly-rate").value = rates.driverHourlyRate;
+      document.getElementById("owner-zone-1").value = rates.zoneRates[0];
+      document.getElementById("owner-zone-2").value = rates.zoneRates[1];
+      document.getElementById("owner-zone-3").value = rates.zoneRates[2];
+      document.getElementById("owner-zone-4").value = rates.zoneRates[3];
+    } catch (err) {
+      document.getElementById("rates-error").textContent = "Couldn't load current rates.";
+    }
+  }
+
+  document.getElementById("rates-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById("rates-error");
+    const successEl = document.getElementById("rates-success");
+    errorEl.textContent = "";
+    successEl.textContent = "";
+    try {
+      await api("/api/owner/rates", {
+        method: "PUT",
+        body: JSON.stringify({
+          minimumWage: Number(document.getElementById("owner-minimum-wage").value),
+          driverHourlyRate: Number(document.getElementById("owner-hourly-rate").value),
+          zoneRates: [
+            Number(document.getElementById("owner-zone-1").value),
+            Number(document.getElementById("owner-zone-2").value),
+            Number(document.getElementById("owner-zone-3").value),
+            Number(document.getElementById("owner-zone-4").value),
+          ],
+        }),
+      });
+      successEl.textContent = "Rates updated — this applies to every branch immediately.";
+    } catch (err) {
       errorEl.textContent = err.message;
     }
   });
