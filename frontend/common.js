@@ -445,3 +445,57 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 })();
+
+// ---------- idle auto-logout ----------
+// A shop terminal left logged in is the actual risk here, not a slow typist —
+// so this has to fire from wall-clock idle time, not from a lack of API
+// calls (most pages only call the API on load/save, so someone could sit on
+// an already-loaded screen for hours without ever accessing the network).
+// Skipped entirely on login.html/setup.html, where there's no session to
+// time out and nothing to log the user out of.
+(function idleAutoLogout() {
+  if (window.location.pathname.endsWith("/login.html") || window.location.pathname.endsWith("/setup.html")) return;
+
+  const IDLE_LIMIT_MS = 5 * 60 * 1000;
+  const CHECK_INTERVAL_MS = 15 * 1000;
+  const STORAGE_KEY = "tt-last-activity";
+
+  let lastLocalActivity = Date.now();
+
+  // Also written to localStorage (shared across every tab on this browser,
+  // not just this one) so activity in one tab counts as activity for all of
+  // them — otherwise an idle tab would log its shared session out from under
+  // a different tab that's actively being used right now.
+  function markActivity() {
+    lastLocalActivity = Date.now();
+    try {
+      localStorage.setItem(STORAGE_KEY, String(lastLocalActivity));
+    } catch (_) {
+      /* private window / storage blocked — falls back to per-tab timing only */
+    }
+  }
+  markActivity();
+
+  ["mousemove", "mousedown", "keydown", "wheel", "scroll", "touchstart"].forEach((evt) => {
+    document.addEventListener(evt, markActivity, { passive: true });
+  });
+
+  let loggedOut = false;
+  setInterval(async () => {
+    if (loggedOut) return;
+    let last = lastLocalActivity;
+    try {
+      last = Math.max(last, Number(localStorage.getItem(STORAGE_KEY)) || 0);
+    } catch (_) {
+      /* use in-memory value only */
+    }
+    if (Date.now() - last < IDLE_LIMIT_MS) return;
+    loggedOut = true;
+    try {
+      await fetch("/api/logout", { method: "POST" });
+    } catch (_) {
+      /* best-effort — redirect regardless */
+    }
+    window.location.href = "/login.html?idle=1";
+  }, CHECK_INTERVAL_MS);
+})();

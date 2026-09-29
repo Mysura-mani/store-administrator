@@ -168,6 +168,8 @@
     const errorCode = params.get("error");
     if (errorCode && GOOGLE_ERRORS[errorCode]) {
       document.getElementById("error").textContent = GOOGLE_ERRORS[errorCode];
+    } else if (params.get("idle") === "1") {
+      document.getElementById("error").textContent = "You were logged out after 5 minutes of inactivity.";
     }
     const [branchList, googleStatus] = await Promise.all([api("/api/branches"), api("/api/auth/google/available")]);
     branches = branchList;
