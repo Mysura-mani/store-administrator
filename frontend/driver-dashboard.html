@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>try{if(localStorage.getItem("theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>My Pay - Tips Tracker</title>
@@ -9,9 +10,10 @@
 <body>
 <div class="app-shell">
   <div class="topbar" id="topbar">
-    <div class="brand"><a href="/driver-dashboard.html">Tips<span>Tracker</span></a></div>
+    <div class="brand"><a href="/driver-dashboard.html">Administration<span>Tracker</span></a></div>
     <div class="user-pill">
       <span id="driver-name-pill"></span>
+      <button class="btn-secondary btn-small" id="theme-toggle-btn"></button>
       <button class="btn-secondary" id="logout-btn">Log out</button>
     </div>
   </div>
@@ -63,15 +65,17 @@
 
     const dayRows = row.days
       .map((d) => {
-        const zoneStr = d.zoneCounts.map((c, i) => `Z${i + 1}:${c}`).join(" ");
-        const noteStr = d.note ? ` — ${escapeHtml(d.note)}` : "";
+        const noteHtml = d.note ? `<br /><span class="hint">${escapeHtml(d.note)}</span>` : "";
         const payClass = d.isSolo ? (d.topUpApplied ? "pay-floor" : "pay-above") : "";
+        const zoneCells = d.zoneCounts
+          .map((c, i) => `<td>${formatMoney(d.zoneValues[i])}<br /><span class="hint">${c} order${c === 1 ? "" : "s"}</span></td>`)
+          .join("");
         return `
           <tr>
-            <td>${d.date}<br /><span class="hint">${zoneStr}${noteStr}</span></td>
+            <td>${d.date}${noteHtml}</td>
             <td>${d.hours}h</td>
             <td>${formatMoney(d.basePay)}</td>
-            <td>${formatMoney(d.deliveryPay)}</td>
+            ${zoneCells}
             <td>${formatMoney(d.tips)}</td>
             <td class="${payClass}">${formatMoney(d.finalPay)}</td>
           </tr>
@@ -81,7 +85,7 @@
 
     document.getElementById("days-wrap").innerHTML = `
       <table>
-        <thead><tr><th>Date</th><th>Hours</th><th>Base pay</th><th>Delivery pay</th><th>Tips</th><th>Total pay</th></tr></thead>
+        <thead><tr><th>Date</th><th>Hours</th><th>Base pay</th><th>Zone 1</th><th>Zone 2</th><th>Zone 3</th><th>Zone 4</th><th>Tips</th><th>Total pay</th></tr></thead>
         <tbody>${dayRows}</tbody>
       </table>
     `;
@@ -113,6 +117,8 @@
     await api("/api/logout", { method: "POST" });
     window.location.href = "/login.html";
   });
+
+  initThemeToggle(document.getElementById("theme-toggle-btn"));
 
   (async () => {
     try {

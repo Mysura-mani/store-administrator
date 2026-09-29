@@ -1,5 +1,61 @@
 // Shared helpers used by every page.
 
+// ---------- theme (light/dark) ----------
+// Applied immediately (not on DOMContentLoaded) since common.js itself
+// loads near the bottom of every page's body — waiting for any DOM-ready
+// event would mean the whole page already painted in the wrong theme first.
+const THEME_STORAGE_KEY = "theme";
+
+function applyTheme(theme) {
+  if (theme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+  else document.documentElement.removeAttribute("data-theme");
+}
+
+function isDarkTheme() {
+  return document.documentElement.getAttribute("data-theme") === "dark";
+}
+
+// Flips the theme, persists the choice, and returns the new value.
+function toggleTheme() {
+  const next = isDarkTheme() ? "light" : "dark";
+  applyTheme(next);
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+  } catch (_) {
+    /* private window — the choice just won't survive this page view */
+  }
+  return next;
+}
+
+(function () {
+  let stored = null;
+  try {
+    stored = localStorage.getItem(THEME_STORAGE_KEY);
+  } catch (_) {
+    /* private window — defaults to light */
+  }
+  applyTheme(stored);
+})();
+
+// Wires up an existing icon-only button (from a page's own header markup) as
+// the theme toggle. Pages with a fuller nav item (icon + label, e.g. the
+// sidebar's "Log out" style) render their own label instead of using this.
+function initThemeToggle(btn) {
+  if (!btn) return;
+  function refresh() {
+    const dark = isDarkTheme();
+    btn.textContent = dark ? "☀️" : "🌙";
+    const label = dark ? "Switch to light mode" : "Switch to dark mode";
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+  }
+  refresh();
+  btn.addEventListener("click", () => {
+    toggleTheme();
+    refresh();
+  });
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -94,15 +150,18 @@ function renderShell(session, activePage, section) {
     : "";
 
   document.getElementById("topbar").innerHTML = `
-    <div class="brand"><a href="/dashboard.html">Tips<span>Tracker</span></a> <span class="branch-tag">${escapeHtml(session.branchName || session.branchId)}</span></div>
+    <div class="brand"><a href="/dashboard.html">Administration<span>Tracker</span></a> <span class="branch-tag">${escapeHtml(session.branchName || session.branchId)}</span></div>
     <div class="nav section-tabs">${tabsHtml}</div>
     <div class="nav">${navHtml}</div>
     <div class="user-pill">
       ${roleBadge}
       ${backToOwnerBtn}
+      <button class="btn-secondary btn-small" id="theme-toggle-btn"></button>
       <button class="btn-secondary" id="logout-btn">Log out</button>
     </div>
   `;
+
+  initThemeToggle(document.getElementById("theme-toggle-btn"));
 
   document.getElementById("logout-btn").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST" });

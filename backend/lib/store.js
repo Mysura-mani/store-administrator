@@ -574,6 +574,7 @@ async function deleteDriver(branchId, id) {
 function computeDeliveryPay(driverRow, rates, isSolo) {
   const basePay = driverRow.hours * rates.driverHourlyRate;
   const zoneCounts = driverRow.zoneCounts;
+  const zoneValues = zoneCounts.map((count, i) => round2(count * rates.zoneRates[i]));
   const deliveryPay = zoneCounts.reduce((sum, count, i) => sum + count * rates.zoneRates[i], 0);
   const rawTotal = basePay + deliveryPay;
   const minWageFloor = driverRow.hours * rates.minimumWage;
@@ -590,6 +591,7 @@ function computeDeliveryPay(driverRow, rates, isSolo) {
     driverId: driverRow.driverId,
     hours: driverRow.hours,
     zoneCounts,
+    zoneValues,
     basePay: round2(basePay),
     deliveryPay: round2(deliveryPay),
     tips: round2(tips),
@@ -1036,6 +1038,7 @@ async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
         date: entry.date,
         hours: share.hours,
         zoneCounts: share.zoneCounts,
+        zoneValues: share.zoneValues,
         basePay: share.basePay,
         deliveryPay: share.deliveryPay,
         tips: share.tips,

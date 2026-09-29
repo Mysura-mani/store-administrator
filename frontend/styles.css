@@ -1,8 +1,10 @@
 :root {
-  /* This app is light-themed only; without this, browsers that are set to
-     dark mode render native form controls (select/option popups, etc.) in
-     their own dark-mode colors regardless of this page's actual CSS, which
-     looks like a black flash before the popup repaints. */
+  /* Defaults to light; a chosen dark theme sets color-scheme: dark below
+     under [data-theme="dark"]. Native <select> popups are never actually
+     shown (common.js's enhanceSelect() replaces them with the custom
+     .cdd-panel below), so switching color-scheme no longer risks the
+     GPU-compositing black-flash bug that motivated pinning this to light
+     in the first place — that only ever affected the native popup itself. */
   color-scheme: light;
   --bg: #f5f6f8;
   --card: #ffffff;
@@ -14,6 +16,43 @@
   --danger: #dc2626;
   --success: #16a34a;
   --radius: 10px;
+  /* Reused neutral surface shades, broken out so a theme only has to
+     redefine them here instead of hunting down every literal hex value. */
+  --surface-subtle: #f1f2f5;
+  --surface-muted: #eef1f6;
+  --surface-hover: #f3f4f6;
+  --row-hover: #fafbfc;
+  --overlay: rgba(17, 24, 39, 0.45);
+  --option-hover: #f0f4ff;
+  --nav-active-bg: #dbeafe;
+  --nav-active-border: #bfdbfe;
+  --login-bg: #e9edf5;
+  --login-illustration-bg: #eef1f6;
+  --login-card-top-bg: #eef4ff;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14161c;
+  --card: #1c1f27;
+  --border: #2c303c;
+  --text: #e5e7eb;
+  --muted: #9aa3b2;
+  --primary: #3b82f6;
+  --primary-dark: #2563eb;
+  --danger: #f87171;
+  --success: #4ade80;
+  --surface-subtle: #20232c;
+  --surface-muted: #242832;
+  --surface-hover: #2a2e3a;
+  --row-hover: #20232c;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --option-hover: rgba(59, 130, 246, 0.18);
+  --nav-active-bg: rgba(59, 130, 246, 0.2);
+  --nav-active-border: rgba(59, 130, 246, 0.4);
+  --login-bg: #0b0d12;
+  --login-illustration-bg: #14161c;
+  --login-card-top-bg: #1b2436;
 }
 
 * { box-sizing: border-box; }
@@ -55,7 +94,7 @@ label {
   font-weight: 600;
   margin-bottom: 6px;
   margin-top: 14px;
-  color: #374151;
+  color: var(--text);
 }
 
 input, select, .cdd-trigger {
@@ -64,11 +103,11 @@ input, select, .cdd-trigger {
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
-  background: #fff;
+  background: var(--card);
   color: var(--text);
 }
 
-input:disabled, select:disabled { background: #f3f4f6; color: var(--muted); cursor: not-allowed; }
+input:disabled, select:disabled { background: var(--surface-hover); color: var(--muted); cursor: not-allowed; }
 
 input:focus, select:focus, .cdd-trigger:focus { outline: 2px solid var(--primary); outline-offset: 0; border-color: var(--primary); }
 
@@ -92,13 +131,13 @@ input:focus, select:focus, .cdd-trigger:focus { outline: 2px solid var(--primary
 .cdd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cdd-chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--muted); transition: transform 0.15s; }
 .cdd-trigger[aria-expanded="true"] .cdd-chevron { transform: rotate(180deg); }
-.cdd-trigger:disabled { background: #f3f4f6; color: var(--muted); cursor: not-allowed; }
+.cdd-trigger:disabled { background: var(--surface-hover); color: var(--muted); cursor: not-allowed; }
 /* position: fixed + appended to <body> (not left inside .cdd-wrap) so an
    ancestor with overflow: hidden (e.g. .login-card) can't clip the open
    panel the way it would a normal absolutely-positioned descendant. */
 .cdd-panel {
   position: fixed;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(16, 24, 40, 0.14);
@@ -107,7 +146,7 @@ input:focus, select:focus, .cdd-trigger:focus { outline: 2px solid var(--primary
   padding: 4px;
 }
 .cdd-option { padding: 8px 10px; border-radius: 6px; font-size: 14px; }
-.cdd-option:hover { background: #f0f4ff; }
+.cdd-option:hover { background: var(--option-hover); }
 .cdd-option[aria-selected="true"] { font-weight: 600; color: var(--primary); }
 
 button {
@@ -121,13 +160,13 @@ button {
 
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-primary:hover { background: var(--primary-dark); }
-.btn-secondary { background: #fff; border-color: var(--border); color: var(--text); }
-.btn-secondary:hover { background: #f3f4f6; }
-.btn-danger { background: #fff; border-color: #fca5a5; color: var(--danger); }
-.btn-danger:hover { background: #fef2f2; }
+.btn-secondary { background: var(--card); border-color: var(--border); color: var(--text); }
+.btn-secondary:hover { background: var(--surface-hover); }
+.btn-danger { background: var(--card); border-color: #fca5a5; color: var(--danger); }
+.btn-danger:hover { background: var(--surface-hover); }
 .btn-full { width: 100%; margin-top: 18px; }
 
-.tabs { display: flex; gap: 4px; margin-bottom: 18px; background: #f1f2f5; padding: 4px; border-radius: 9px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 18px; background: var(--surface-subtle); padding: 4px; border-radius: 9px; }
 .tabs button {
   flex: 1;
   background: transparent;
@@ -136,7 +175,7 @@ button {
   border-radius: 6px;
   color: var(--muted);
 }
-.tabs button.active { background: #fff; color: var(--text); box-shadow: 0 1px 2px rgba(16,24,40,.08); }
+.tabs button.active { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(16,24,40,.08); }
 
 .error-msg { color: var(--danger); font-size: 13px; margin-top: 10px; min-height: 16px; }
 .success-msg { color: var(--success); font-size: 13px; margin-top: 10px; min-height: 16px; }
@@ -205,13 +244,13 @@ button {
   font-size: 12px;
   font-weight: 700;
   color: var(--muted);
-  background: #eef1f6;
+  background: var(--surface-muted);
   padding: 3px 9px;
   border-radius: 999px;
 }
 
 .nav.section-tabs {
-  background: #eef1f6;
+  background: var(--surface-muted);
   padding: 4px;
   border-radius: 10px;
 }
@@ -233,17 +272,23 @@ button {
   border-radius: 8px;
   font-size: 14px;
   font-weight: 600;
+  border: 1px solid transparent;
 }
-.nav a.active, .nav a:hover { background: #fff; color: var(--text); border: 1px solid var(--border); }
+.nav a:hover { background: var(--surface-hover); color: var(--text); }
+/* Deliberately not shared with :hover — a hover and the page you're actually
+   on need to look different, or there's no way to tell which section you're
+   in at a glance. */
+.nav a.active { background: var(--nav-active-bg); color: var(--primary); border-color: var(--nav-active-border); }
 
 .user-pill { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
 .user-pill button { padding: 6px 10px; font-size: 13px; }
 
+#table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
 tfoot td { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; }
-tbody tr:hover { background: #fafbfc; }
+tbody tr:hover { background: var(--row-hover); }
 
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
 .row > * { flex: 1; min-width: 160px; }
@@ -254,9 +299,9 @@ tbody tr:hover { background: #fafbfc; }
 .shift-row button { flex: 0 0 auto; }
 
 .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-.badge-inactive { background: #f3f4f6; color: var(--muted); }
+.badge-inactive { background: var(--surface-hover); color: var(--muted); }
 .badge-active { background: #dcfce7; color: #166534; }
-.badge-staff { background: #eef1f6; color: var(--muted); }
+.badge-staff { background: var(--surface-muted); color: var(--muted); }
 .badge-admin { background: #dbeafe; color: #1d4ed8; }
 
 .btn-small { padding: 5px 10px; font-size: 12px; }
@@ -264,7 +309,7 @@ tbody tr:hover { background: #fafbfc; }
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(17, 24, 39, 0.45);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -272,7 +317,7 @@ tbody tr:hover { background: #fafbfc; }
   padding: 20px;
 }
 .modal-card {
-  background: #fff;
+  background: var(--card);
   border-radius: var(--radius);
   padding: 24px;
   width: 100%;
@@ -288,8 +333,8 @@ tbody tr:hover { background: #fafbfc; }
   color: var(--primary);
   padding: 2px 6px;
 }
-.day-subtable { background: #fafbfc; }
-.day-subtable td { padding: 6px 10px 6px 34px; font-size: 13px; color: var(--muted); border-bottom: 1px solid #eef0f3; }
+.day-subtable { background: var(--row-hover); }
+.day-subtable td { padding: 6px 10px 6px 34px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--border); }
 .day-subtable td:first-child { color: var(--text); }
 
 .period-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
@@ -309,7 +354,7 @@ tbody tr:hover { background: #fafbfc; }
   border-radius: var(--radius);
   padding: 20px;
   margin-bottom: 16px;
-  background: #fafbfc;
+  background: var(--row-hover);
 }
 .driver-card-header { font-weight: 700; margin-bottom: 12px; color: var(--text); }
 .driver-card .zone-row > div { min-width: 110px; }
@@ -338,7 +383,7 @@ tbody tr:hover { background: #fafbfc; }
 .cash-order-box label { font-size: 11px; margin-top: 0; margin-bottom: 4px; }
 
 .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-.preset-row button { background: #fff; border: 1px solid var(--border); color: var(--text); padding: 7px 12px; }
+.preset-row button { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 7px 12px; }
 .preset-row button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
 .empty-state { color: var(--muted); font-size: 14px; padding: 30px 0; text-align: center; }
@@ -399,7 +444,7 @@ tbody tr:hover { background: #fafbfc; }
   justify-content: flex-end;
   padding: 40px 6vw;
   overflow: hidden;
-  background: #e9edf5;
+  background: var(--login-bg);
 }
 
 .login-bg {
@@ -411,7 +456,7 @@ tbody tr:hover { background: #fafbfc; }
   display: block;
   object-fit: contain;
   object-position: center;
-  background: #eef1f6;
+  background: var(--login-illustration-bg);
 }
 
 .login-card {
@@ -419,13 +464,20 @@ tbody tr:hover { background: #fafbfc; }
   z-index: 1;
   width: 400px;
   max-width: 92vw;
-  background: #fff;
+  background: var(--card);
   border-radius: 20px;
   box-shadow: 0 30px 70px rgba(15, 23, 42, 0.28);
   overflow: hidden;
 }
 
-.login-card-top { background: #eef4ff; padding: 18px 32px; }
+.login-card-top {
+  background: var(--login-card-top-bg);
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 
 .login-eyebrow {
   display: inline-flex;
@@ -453,7 +505,7 @@ tbody tr:hover { background: #fafbfc; }
   display: flex;
   align-items: center;
   gap: 10px;
-  border-bottom: 1.5px solid #dde2ea;
+  border-bottom: 1.5px solid var(--border);
   padding-bottom: 8px;
   margin-bottom: 22px;
   position: relative;
@@ -502,11 +554,21 @@ tbody tr:hover { background: #fafbfc; }
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   color: var(--text);
 }
-.btn-google:hover { background: #f9fafb; }
+.btn-google:hover { background: var(--surface-hover); }
+
+.theme-toggle-inline {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px;
+  color: inherit;
+  flex-shrink: 0;
+}
 
 @media (max-width: 620px) {
   .login-page { justify-content: center; padding: 24px; }
@@ -533,7 +595,7 @@ tbody tr:hover { background: #fafbfc; }
 .owner-sidebar {
   width: 232px;
   flex-shrink: 0;
-  background: #fff;
+  background: var(--card);
   border-right: 1px solid var(--border);
   padding: 24px 16px;
   display: flex;
@@ -565,13 +627,14 @@ tbody tr:hover { background: #fafbfc; }
   text-decoration: none;
   font-weight: 600;
   font-size: 14px;
-  border: none;
+  border: 1px solid transparent;
   background: none;
   width: 100%;
   text-align: left;
   cursor: pointer;
 }
-.owner-nav a.active, .owner-nav a:hover, .owner-nav button:hover { background: #eef1f6; color: var(--text); }
+.owner-nav a:hover, .owner-nav button:hover { background: var(--surface-muted); color: var(--text); }
+.owner-nav a.active { background: var(--nav-active-bg); color: var(--primary); border-color: var(--nav-active-border); }
 .owner-nav .nav-icon { font-size: 16px; width: 20px; text-align: center; }
 
 .owner-main { flex: 1; padding: 32px 40px; min-width: 0; }
@@ -582,7 +645,7 @@ tbody tr:hover { background: #fafbfc; }
 .stat-card {
   flex: 1;
   min-width: 170px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
@@ -602,7 +665,7 @@ tbody tr:hover { background: #fafbfc; }
 
 .store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .store-card {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
@@ -614,7 +677,7 @@ tbody tr:hover { background: #fafbfc; }
 .store-card-actions button { padding: 6px 10px; font-size: 12px; }
 
 .analytics-panel {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>try{if(localStorage.getItem("theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Delivery History - Tips Tracker</title>
@@ -36,6 +37,18 @@
   let mode = "week";
   let anchor = todayStr();
 
+  // Sums one zone's count or € value across a set of days — used both for a
+  // driver's period-total row and for the grand-total footer.
+  function sumZone(days, i, key) {
+    return days.reduce((sum, d) => sum + (d[key][i] || 0), 0);
+  }
+
+  function zoneCellsHtml(zoneCounts, zoneValues) {
+    return zoneCounts
+      .map((c, i) => `<td>${formatMoney(zoneValues[i])}<br /><span class="hint">${c} order${c === 1 ? "" : "s"}</span></td>`)
+      .join("");
+  }
+
   function renderTable(history) {
     document.getElementById("period-label").textContent = history.label;
     const wrap = document.getElementById("table-wrap");
@@ -45,12 +58,19 @@
       return;
     }
 
+    // Only the Daily view breaks delivery pay down by zone — a Weekly/
+    // Monthly/Quarterly total spans several different zone mixes, where one
+    // combined Delivery Pay figure reads more clearly than four summed ones.
+    const zoneWise = mode === "day";
+
     const bodyRows = history.rows
       .map((row) => {
         const dayRows = row.days
           .map((d) => {
-            const zoneStr = d.zoneCounts.map((c, i) => `Z${i + 1}:${c}`).join(" ");
-            const noteStr = d.note ? ` — ${escapeHtml(d.note)}` : "";
+            const hintBits = [];
+            if (!zoneWise) hintBits.push(`Z1:${d.zoneCounts[0]} Z2:${d.zoneCounts[1]} Z3:${d.zoneCounts[2]} Z4:${d.zoneCounts[3]}`);
+            if (d.note) hintBits.push(escapeHtml(d.note));
+            const dateHintHtml = hintBits.length ? `<br /><span class="hint">${hintBits.join(" — ")}</span>` : "";
             const payClass = d.isSolo ? (d.topUpApplied ? "pay-floor" : "pay-above") : "";
             const cashStr =
               d.cashOrderCount > 0 || d.cashOrderValue > 0 ? `${d.cashOrderCount} / ${formatMoney(d.cashOrderValue)}` : "—";
@@ -62,12 +82,13 @@
             const editBtn = canEdit
               ? `<button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}" data-driver="${row.driverId}">Edit</button>`
               : "";
+            const deliveryCells = zoneWise ? zoneCellsHtml(d.zoneCounts, d.zoneValues) : `<td>${formatMoney(d.deliveryPay)}</td>`;
             return `
               <tr class="day-subtable" data-owner="${row.driverId}" style="display:none">
-                <td>${d.date}<br /><span class="hint">${zoneStr}${noteStr}</span></td>
+                <td>${d.date}${dateHintHtml}</td>
                 <td>${d.hours}h</td>
                 <td>${formatMoney(d.basePay)}</td>
-                <td>${formatMoney(d.deliveryPay)}</td>
+                ${deliveryCells}
                 <td>${formatMoney(d.tips)}</td>
                 <td class="${payClass}">${formatMoney(d.finalPay)}</td>
                 <td>${cashStr}
@@ -82,12 +103,21 @@
           row.cashOrderCount > 0 || row.cashOrderValue > 0
             ? `${row.cashOrderCount} / ${formatMoney(row.cashOrderValue)}`
             : "—";
+        const rowDeliveryCells = zoneWise
+          ? [0, 1, 2, 3]
+              .map((i) => {
+                const val = sumZone(row.days, i, "zoneValues");
+                const cnt = sumZone(row.days, i, "zoneCounts");
+                return `<td>${formatMoney(val)}<br /><span class="hint">${cnt} order${cnt === 1 ? "" : "s"}</span></td>`;
+              })
+              .join("")
+          : `<td>${formatMoney(row.deliveryPay)}</td>`;
         return `
           <tr>
             <td><button class="expand-toggle" data-target="${row.driverId}">&#9656;</button> ${escapeHtml(row.name)}</td>
             <td>${row.hours}h</td>
             <td>${formatMoney(row.basePay)}</td>
-            <td>${formatMoney(row.deliveryPay)}</td>
+            ${rowDeliveryCells}
             <td>${formatMoney(row.tips)}</td>
             <td>${formatMoney(row.finalPay)}</td>
             <td>${cashTotalStr}</td>
@@ -97,10 +127,24 @@
       })
       .join("");
 
+    const deliveryHeaders = zoneWise
+      ? "<th>Zone 1</th><th>Zone 2</th><th>Zone 3</th><th>Zone 4</th>"
+      : "<th>Delivery Pay</th>";
+    const allDays = history.rows.flatMap((r) => r.days);
+    const footerDeliveryCells = zoneWise
+      ? [0, 1, 2, 3]
+          .map((i) => {
+            const val = sumZone(allDays, i, "zoneValues");
+            const cnt = sumZone(allDays, i, "zoneCounts");
+            return `<td>${formatMoney(val)}<br /><span class="hint">${cnt} order${cnt === 1 ? "" : "s"}</span></td>`;
+          })
+          .join("")
+      : `<td>${formatMoney(history.totals.deliveryPay)}</td>`;
+
     wrap.innerHTML = `
       <table>
         <thead>
-          <tr><th>Driver</th><th>Hours</th><th>Base Pay</th><th>Delivery Pay</th><th>Tips</th><th>Total Pay</th><th>Cash to return (#/&euro;)</th></tr>
+          <tr><th>Driver</th><th>Hours</th><th>Base Pay</th>${deliveryHeaders}<th>Tips</th><th>Total Pay</th><th>Cash to return (#/&euro;)</th></tr>
         </thead>
         <tbody>${bodyRows}</tbody>
         <tfoot>
@@ -108,7 +152,7 @@
             <td>Total (${history.entryCount} ${history.entryCount === 1 ? "day" : "days"})</td>
             <td>${history.totals.hours}h</td>
             <td>${formatMoney(history.totals.basePay)}</td>
-            <td>${formatMoney(history.totals.deliveryPay)}</td>
+            ${footerDeliveryCells}
             <td>${formatMoney(history.totals.tips)}</td>
             <td>${formatMoney(history.totals.finalPay)}</td>
             <td>${history.totals.cashOrderCount} / ${formatMoney(history.totals.cashOrderValue)}</td>

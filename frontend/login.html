@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>try{if(localStorage.getItem("theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Log in - Tips Tracker</title>
@@ -21,6 +22,7 @@
         </svg>
         Dashboard Login
       </div>
+      <button type="button" class="theme-toggle-inline" id="theme-toggle-btn"></button>
     </div>
 
     <div class="login-card-body">
@@ -181,6 +183,8 @@
   document.getElementById("google-btn").addEventListener("click", () => {
     window.location.href = "/auth/google";
   });
+
+  initThemeToggle(document.getElementById("theme-toggle-btn"));
 
   document.getElementById("login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
