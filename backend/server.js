@@ -299,6 +299,11 @@ app.get("/api/owner/branches", requireOwner, ah(async (req, res) => {
 }));
 
 app.get("/api/owner/analytics", requireOwner, ah(async (req, res) => {
+  // No background scheduler exists here, so this is where a standing
+  // "delete entries older than 2 years" setting actually gets enforced —
+  // opportunistically, on the owner's own next dashboard load, rather than
+  // on a fixed clock.
+  await store.purgeOldEntriesIfEnabled();
   res.json(await store.getAnalyticsData());
 }));
 
@@ -380,6 +385,20 @@ app.put("/api/owner/google-email", requireOwner, ah(async (req, res) => {
   }
   await store.setOwnerGoogleEmail(email || null);
   res.json({ ok: true, email: await store.getOwnerGoogleEmail() });
+}));
+
+app.get("/api/owner/settings/auto-delete", requireOwner, ah(async (req, res) => {
+  res.json({ enabled: await store.getAutoDeleteOldEntries() });
+}));
+
+// Turning this on runs an immediate pass (not just going forward) so the
+// owner sees it actually take effect rather than wondering whether it did
+// anything — see purgeOldEntriesIfEnabled() for why there's no scheduler.
+app.put("/api/owner/settings/auto-delete", requireOwner, ah(async (req, res) => {
+  const { enabled } = req.body || {};
+  await store.setAutoDeleteOldEntries(!!enabled);
+  const result = enabled ? await store.purgeOldEntriesIfEnabled() : { deletedCount: 0 };
+  res.json({ ok: true, enabled: !!enabled, deletedCount: result.deletedCount });
 }));
 
 // Points at the currently-connected business-data Sheet (owner-chosen, not

@@ -148,6 +148,17 @@ async function setOwnerGoogleEmail(email) {
   await setConfigValue("ownerGoogleEmail", email ? email.trim().toLowerCase() : "");
 }
 
+// Off by default — the Sheet only ever grows by the owner's own explicit
+// choice, never surprises them by deleting history on its own.
+async function getAutoDeleteOldEntries() {
+  const cfg = await getConfig();
+  return cfg.autoDeleteOldEntries === "true";
+}
+
+async function setAutoDeleteOldEntries(enabled) {
+  await setConfigValue("autoDeleteOldEntries", enabled ? "true" : "false");
+}
+
 function slugify(name) {
   return (
     name
@@ -1024,6 +1035,43 @@ async function getAnalyticsData() {
   return { branches, employees, drivers, tipRows, deliveryRows };
 }
 
+// ---------- retention: auto-delete entries older than 2 years ----------
+
+async function deleteRowsOlderThan(tabName, headers, branchId, cutoffDateStr) {
+  const rows = await sheetsClient.getRows(tabName, headers);
+  const toDelete = rows
+    .filter((r) => r.branchId === branchId && r.date < cutoffDateStr)
+    .sort((a, b) => b.__row - a.__row);
+  for (const r of toDelete) {
+    await sheetsClient.deleteRow(tabName, r.__row);
+  }
+  return toDelete.length;
+}
+
+// If the owner has turned this on, permanently removes every Tip Sheet and
+// Delivery Payout entry more than 2 years old (a rolling window measured
+// from today, not a fixed calendar date) across every branch. There's no
+// background scheduler in this app, so this runs opportunistically —
+// whenever the owner dashboard is opened (see GET /api/owner/analytics) and
+// right after the setting is turned on — rather than on a fixed clock; a
+// deployment nobody opens for a while just catches up on the next visit.
+async function purgeOldEntriesIfEnabled() {
+  const enabled = await getAutoDeleteOldEntries();
+  if (!enabled) return { ran: false, deletedCount: 0 };
+  const cutoff = (() => {
+    const d = new Date();
+    d.setUTCFullYear(d.getUTCFullYear() - 2);
+    return formatDateStr(d);
+  })();
+  const branches = await getBranches();
+  let deletedCount = 0;
+  for (const b of branches) {
+    deletedCount += await deleteRowsOlderThan("Entries", ENTRIES_HEADERS, b.id, cutoff);
+    deletedCount += await deleteRowsOlderThan("DeliveryEntries", DELIVERY_ENTRIES_HEADERS, b.id, cutoff);
+  }
+  return { ran: true, deletedCount };
+}
+
 module.exports = {
   ensureSeeded,
   getBranches,
@@ -1033,6 +1081,9 @@ module.exports = {
   hasOwnerPassword,
   getOwnerGoogleEmail,
   setOwnerGoogleEmail,
+  getAutoDeleteOldEntries,
+  setAutoDeleteOldEntries,
+  purgeOldEntriesIfEnabled,
   getAnalyticsData,
   createBranch,
   updateBranchByOwner,

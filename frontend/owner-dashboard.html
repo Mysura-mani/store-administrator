@@ -121,6 +121,22 @@
         <p class="subtitle" id="sheets-status-text">Loading&hellip;</p>
         <div id="sheets-actions" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px"></div>
       </div>
+
+      <div class="card" style="max-width:440px; margin-top:20px">
+        <h2>Data retention</h2>
+        <p class="subtitle">Keep the Google Sheet from growing forever by clearing out old history.</p>
+        <label style="display:flex; align-items:center; gap:8px; font-weight:600; margin-top:14px; cursor:pointer">
+          <input type="checkbox" id="auto-delete-toggle" style="width:auto" />
+          Automatically delete tip and delivery entries older than 2 years
+        </label>
+        <p class="hint">
+          Checked: every time entries pass the 2-year mark, they're permanently removed from the
+          Sheet the next time this dashboard is opened. Unchecked: nothing is ever deleted
+          automatically.
+        </p>
+        <div class="error-msg" id="auto-delete-error"></div>
+        <div class="success-msg" id="auto-delete-success"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -142,6 +158,7 @@
       if (a.dataset.view === "settings") {
         loadGoogleConfig();
         loadSheetsStatus();
+        loadAutoDeleteSetting();
       }
     });
   });
@@ -621,6 +638,40 @@
       statusEl.textContent = "Couldn't load storage info.";
     }
   }
+
+  async function loadAutoDeleteSetting() {
+    try {
+      const { enabled } = await api("/api/owner/settings/auto-delete");
+      document.getElementById("auto-delete-toggle").checked = enabled;
+    } catch (err) {
+      document.getElementById("auto-delete-error").textContent = "Couldn't load this setting.";
+    }
+  }
+
+  document.getElementById("auto-delete-toggle").addEventListener("change", async (e) => {
+    const errorEl = document.getElementById("auto-delete-error");
+    const successEl = document.getElementById("auto-delete-success");
+    errorEl.textContent = "";
+    successEl.textContent = "";
+    const enabled = e.target.checked;
+    try {
+      const result = await api("/api/owner/settings/auto-delete", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      });
+      if (enabled) {
+        successEl.textContent =
+          result.deletedCount > 0
+            ? `Turned on. ${result.deletedCount} entr${result.deletedCount === 1 ? "y" : "ies"} older than 2 years were deleted just now.`
+            : "Turned on. Nothing was old enough to delete yet.";
+      } else {
+        successEl.textContent = "Turned off. Old entries will no longer be deleted automatically.";
+      }
+    } catch (err) {
+      e.target.checked = !enabled;
+      errorEl.textContent = err.message;
+    }
+  });
 
   (async () => {
     const session = await requireSession();
