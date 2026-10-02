@@ -13,7 +13,6 @@
   <div class="owner-sidebar">
     <div class="brand">
       Administration<span>Tracker</span>
-      <div class="owner-badge">Owner</div>
     </div>
     <div class="owner-nav">
       <a href="#" class="nav-link active" data-view="stores"><span class="nav-icon">&#127970;</span> Stores</a>
@@ -24,6 +23,12 @@
   </div>
 
   <div class="owner-main">
+    <div style="display:flex; justify-content:flex-end; margin-bottom:8px">
+      <div class="branch-info">
+        <div class="branch-name">Owner</div>
+      </div>
+    </div>
+
     <div id="view-stores">
       <div class="owner-main-header">
         <h1>Stores</h1>
@@ -109,10 +114,12 @@
       <div class="card" style="max-width:440px; flex:1 1 380px">
         <h2>Driver's Payment</h2>
         <p class="subtitle">
-          Used to calculate every branch's driver pay. The minimum wage is the government-set floor
-          — update it here whenever it changes, and it applies everywhere immediately.
+          Each branch has its own minimum wage, hourly rate, and zone rates — pick a branch below
+          to view or update its figures.
         </p>
-        <form id="rates-form">
+        <label for="rates-branch-select">Branch</label>
+        <select id="rates-branch-select"></select>
+        <form id="rates-form" style="margin-top:14px">
           <label for="owner-minimum-wage">Minimum wage (&euro;/hour)</label>
           <input type="number" id="owner-minimum-wage" min="0" step="0.01" required />
 
@@ -740,9 +747,31 @@
     }
   });
 
+  // Keeps the branch picker in sync with the current store list (which may
+  // have changed via the Stores view since Settings was last opened) and
+  // disables the whole rates form when there's nothing to pick yet.
+  function populateRatesBranchSelect() {
+    const select = document.getElementById("rates-branch-select");
+    const prev = select.value;
+    const formControls = document.querySelectorAll("#rates-form input, #rates-form button");
+    if (stores.length === 0) {
+      select.innerHTML = `<option value="">No stores yet</option>`;
+      select.disabled = true;
+      formControls.forEach((el) => (el.disabled = true));
+      return;
+    }
+    select.disabled = false;
+    formControls.forEach((el) => (el.disabled = false));
+    select.innerHTML = stores.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join("");
+    select.value = [...select.options].some((o) => o.value === prev) ? prev : stores[0].id;
+  }
+
   async function loadRates() {
+    populateRatesBranchSelect();
+    const branchId = document.getElementById("rates-branch-select").value;
+    if (!branchId) return;
     try {
-      const rates = await api("/api/owner/rates");
+      const rates = await api(`/api/owner/branches/${branchId}/rates`);
       document.getElementById("owner-minimum-wage").value = rates.minimumWage;
       document.getElementById("owner-hourly-rate").value = rates.driverHourlyRate;
       document.getElementById("owner-zone-1").value = rates.zoneRates[0];
@@ -754,14 +783,22 @@
     }
   }
 
+  document.getElementById("rates-branch-select").addEventListener("change", () => {
+    document.getElementById("rates-error").textContent = "";
+    document.getElementById("rates-success").textContent = "";
+    loadRates();
+  });
+
   document.getElementById("rates-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const errorEl = document.getElementById("rates-error");
     const successEl = document.getElementById("rates-success");
     errorEl.textContent = "";
     successEl.textContent = "";
+    const branchId = document.getElementById("rates-branch-select").value;
+    const branchName = (stores.find((s) => s.id === branchId) || {}).name || branchId;
     try {
-      await api("/api/owner/rates", {
+      await api(`/api/owner/branches/${branchId}/rates`, {
         method: "PUT",
         body: JSON.stringify({
           minimumWage: Number(document.getElementById("owner-minimum-wage").value),
@@ -774,7 +811,7 @@
           ],
         }),
       });
-      successEl.textContent = "Rates updated — this applies to every branch immediately.";
+      successEl.textContent = `Rates updated for ${branchName}.`;
     } catch (err) {
       errorEl.textContent = err.message;
     }

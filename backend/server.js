@@ -810,26 +810,26 @@ app.get("/api/delivery-history", requireAuth, ah(async (req, res) => {
 
 // ---------- rates ----------
 
-// Read-only for branch staff/admin — driver pay rates are set by the owner
-// only (see /api/owner/rates below), since minimum wage in particular is a
-// government-set figure the whole business is equally subject to.
+// Read-only for branch staff/admin — each branch's driver pay rates are set
+// by the owner only, per branch (see /api/owner/branches/:id/rates below).
 app.get("/api/rates", requireAuth, ah(async (req, res) => {
   res.json(await store.getBranchRates(req.session.branchId));
 }));
 
-app.get("/api/owner/rates", requireOwner, ah(async (req, res) => {
-  res.json(await store.getGlobalRates());
+app.get("/api/owner/branches/:id/rates", requireOwner, ah(async (req, res) => {
+  if (!(await store.branchExists(req.params.id))) return res.status(404).json({ error: "Store not found." });
+  res.json(await store.getBranchRates(req.params.id));
 }));
 
-app.put("/api/owner/rates", requireOwner, ah(async (req, res) => {
+app.put("/api/owner/branches/:id/rates", requireOwner, ah(async (req, res) => {
   const { driverHourlyRate, minimumWage, zoneRates } = req.body || {};
   try {
-    await store.setGlobalRates({
+    const rates = await store.setBranchRates(req.params.id, {
       driverHourlyRate: Number(driverHourlyRate),
       minimumWage: Number(minimumWage),
       zoneRates: Array.isArray(zoneRates) ? zoneRates.map(Number) : [],
     });
-    res.json(await store.getGlobalRates());
+    res.json(rates);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
