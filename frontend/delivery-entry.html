@@ -102,9 +102,19 @@
           <input type="number" class="d-tips" min="0" step="0.01" value="${tips || ""}" placeholder="0.00" />
         </div>
       </div>
-      <div class="driver-total-row">
-        <span>Total pay</span>
-        <span class="driver-total">&mdash;</span>
+      <div class="driver-pay-breakdown">
+        <div class="driver-pay-row">
+          <span>Orders pay</span>
+          <span class="driver-orders-pay">&mdash;</span>
+        </div>
+        <div class="driver-pay-row">
+          <span>Pay</span>
+          <span class="driver-pay">&mdash;</span>
+        </div>
+        <div class="driver-pay-row driver-actual-pay-row">
+          <span>Actual pay</span>
+          <span class="driver-total">&mdash;</span>
+        </div>
       </div>
       <div class="cash-orders-block">
         <label style="margin-top:0">Cash collection orders</label>
@@ -163,9 +173,13 @@
     document.querySelectorAll(".driver-card").forEach((card) => {
       const hours = Number(card.querySelector(".d-hours").value) || 0;
       const zoneCounts = Array.from(card.querySelectorAll(".d-zone")).map((input) => Number(input.value) || 0);
+      const ordersEl = card.querySelector(".driver-orders-pay");
+      const payEl = card.querySelector(".driver-pay");
       const totalEl = card.querySelector(".driver-total");
-      totalEl.classList.remove("pay-floor", "pay-above");
+      payEl.classList.remove("pay-floor", "pay-above");
       if (!rates || hours <= 0) {
+        ordersEl.textContent = "—";
+        payEl.textContent = "—";
         totalEl.textContent = "—";
         return;
       }
@@ -175,9 +189,14 @@
       const rawTotal = basePay + deliveryPay;
       const minWageFloor = hours * rates.minimumWage;
       const topUpApplied = isSolo && minWageFloor > rawTotal;
+      // "Pay" is base pay + orders pay (minimum-wage floor applied), shown
+      // separately from "Actual pay" (Pay + Tips) so it's clear tips are
+      // added on top rather than folded invisibly into one number.
       const payBeforeTips = topUpApplied ? minWageFloor : rawTotal;
+      ordersEl.textContent = formatMoney(deliveryPay);
+      payEl.textContent = formatMoney(payBeforeTips);
       totalEl.textContent = formatMoney(payBeforeTips + tips);
-      if (isSolo) totalEl.classList.add(topUpApplied ? "pay-floor" : "pay-above");
+      if (isSolo) payEl.classList.add(topUpApplied ? "pay-floor" : "pay-above");
     });
   }
 

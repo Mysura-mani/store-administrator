@@ -596,6 +596,11 @@ function computeDeliveryPay(driverRow, rates, isSolo) {
     deliveryPay: round2(deliveryPay),
     tips: round2(tips),
     topUpApplied,
+    // "Pay" — base pay + orders pay (minimum-wage floor applied), before
+    // tips. Exposed separately from finalPay ("Actual pay") so the UI can
+    // show the two as a visible Pay + Tips = Actual pay breakdown instead
+    // of one opaque combined number.
+    pay: round2(payBeforeTips),
     finalPay: round2(finalPay),
     cashOrders,
     cashOrderCount: cashOrders.length,
@@ -1019,6 +1024,7 @@ async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
         basePay: 0,
         deliveryPay: 0,
         tips: 0,
+        pay: 0,
         finalPay: 0,
         topUpDays: 0,
         cashOrderCount: 0,
@@ -1029,6 +1035,7 @@ async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
       row.basePay += share.basePay;
       row.deliveryPay += share.deliveryPay;
       row.tips += share.tips;
+      row.pay += share.pay;
       row.finalPay += share.finalPay;
       row.cashOrderCount += share.cashOrderCount;
       row.cashOrderValue += share.cashOrderValue;
@@ -1042,6 +1049,7 @@ async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
         basePay: share.basePay,
         deliveryPay: share.deliveryPay,
         tips: share.tips,
+        pay: share.pay,
         isSolo,
         topUpApplied: share.topUpApplied,
         finalPay: share.finalPay,
@@ -1061,6 +1069,7 @@ async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
       basePay: round2(row.basePay),
       deliveryPay: round2(row.deliveryPay),
       tips: round2(row.tips),
+      pay: round2(row.pay),
       finalPay: round2(row.finalPay),
       topUpDays: row.topUpDays,
       cashOrderCount: row.cashOrderCount,
@@ -1075,11 +1084,12 @@ async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
       basePay: round2(acc.basePay + r.basePay),
       deliveryPay: round2(acc.deliveryPay + r.deliveryPay),
       tips: round2(acc.tips + r.tips),
+      pay: round2(acc.pay + r.pay),
       finalPay: round2(acc.finalPay + r.finalPay),
       cashOrderCount: acc.cashOrderCount + r.cashOrderCount,
       cashOrderValue: round2(acc.cashOrderValue + r.cashOrderValue),
     }),
-    { hours: 0, basePay: 0, deliveryPay: 0, tips: 0, finalPay: 0, cashOrderCount: 0, cashOrderValue: 0 }
+    { hours: 0, basePay: 0, deliveryPay: 0, tips: 0, pay: 0, finalPay: 0, cashOrderCount: 0, cashOrderValue: 0 }
   );
 
   return {

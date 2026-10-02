@@ -92,7 +92,14 @@
             const editBtn = canEdit
               ? `<button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}" data-driver="${row.driverId}">Edit</button>`
               : "";
-            const deliveryCells = zoneWise ? zoneCellsHtml(d.zoneCounts, d.zoneValues) : `<td>${formatMoney(d.deliveryPay)}</td>`;
+            // In the zone-wise Daily view, "Pay" (base + orders, before tips)
+            // gets its own column right after the zone breakdown, and the
+            // minimum-wage-floor highlight moves there with it, since that's
+            // the figure the floor actually affects — the final Actual Pay
+            // column is just Pay + Tips, nothing floor-specific of its own.
+            const deliveryCells = zoneWise
+              ? zoneCellsHtml(d.zoneCounts, d.zoneValues) + `<td class="${payClass}">${formatMoney(d.pay)}</td>`
+              : `<td>${formatMoney(d.deliveryPay)}</td>`;
             return `
               <tr class="day-subtable" data-owner="${row.driverId}" style="display:none">
                 <td>${d.date}${dateHintHtml}</td>
@@ -100,7 +107,7 @@
                 <td>${formatMoney(d.basePay)}</td>
                 ${deliveryCells}
                 <td>${formatMoney(d.tips)}</td>
-                <td class="${payClass}">${formatMoney(d.finalPay)}</td>
+                <td class="${zoneWise ? "" : payClass}">${formatMoney(d.finalPay)}</td>
                 <td>${cashStr}
                   ${editBtn}
                   <button class="btn-danger btn-small delete-day-btn" data-id="${d.entryId}">Delete</button>
@@ -120,7 +127,7 @@
                 const cnt = sumZone(row.days, i, "zoneCounts");
                 return `<td>${formatMoney(val)}<br /><span class="hint">${cnt} order${cnt === 1 ? "" : "s"}</span></td>`;
               })
-              .join("")
+              .join("") + `<td>${formatMoney(row.pay)}</td>`
           : `<td>${formatMoney(row.deliveryPay)}</td>`;
         return `
           <tr>
@@ -138,7 +145,7 @@
       .join("");
 
     const deliveryHeaders = zoneWise
-      ? "<th>Zone 1</th><th>Zone 2</th><th>Zone 3</th><th>Zone 4</th>"
+      ? "<th>Zone 1</th><th>Zone 2</th><th>Zone 3</th><th>Zone 4</th><th>Pay</th>"
       : "<th>Delivery Pay</th>";
     const allDays = history.rows.flatMap((r) => r.days);
     const footerDeliveryCells = zoneWise
@@ -148,13 +155,13 @@
             const cnt = sumZone(allDays, i, "zoneCounts");
             return `<td>${formatMoney(val)}<br /><span class="hint">${cnt} order${cnt === 1 ? "" : "s"}</span></td>`;
           })
-          .join("")
+          .join("") + `<td>${formatMoney(history.totals.pay)}</td>`
       : `<td>${formatMoney(history.totals.deliveryPay)}</td>`;
 
     wrap.innerHTML = `
       <table>
         <thead>
-          <tr><th>Driver</th><th>Hours</th><th>Base Pay</th>${deliveryHeaders}<th>Tips</th><th>Total Pay</th><th>Cash to return (#/&euro;)</th></tr>
+          <tr><th>Driver</th><th>Hours</th><th>Base Pay</th>${deliveryHeaders}<th>Tips</th><th>${zoneWise ? "Actual Pay" : "Total Pay"}</th><th>Cash to return (#/&euro;)</th></tr>
         </thead>
         <tbody>${bodyRows}</tbody>
         <tfoot>

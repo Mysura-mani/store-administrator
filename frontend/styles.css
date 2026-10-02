@@ -368,6 +368,24 @@ tbody tr:hover { background: var(--row-hover); }
   font-weight: 600;
 }
 .driver-total { font-size: 16px; }
+.driver-pay-breakdown {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.driver-pay-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  padding: 5px 0;
+}
+.driver-pay-row.driver-actual-pay-row {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  font-size: 17px;
+}
 .tips-block {
   margin-top: 16px;
   padding-top: 14px;
