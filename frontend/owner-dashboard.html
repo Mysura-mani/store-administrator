@@ -54,6 +54,7 @@
               <option value="cashTips">Cash tips</option>
               <option value="creditTips">Credit tips</option>
               <option value="tips">Cash + credit tips</option>
+              <option value="tipsSplit">Cash &amp; credit (separate bars)</option>
               <option value="driverPay">Drivers' pay</option>
             </select>
           </div>
@@ -413,8 +414,13 @@
     select.value = [...select.options].some((o) => o.value === prev) ? prev : "all";
   }
 
+  // "tipsSplit" needs cash and credit kept apart per bucket (so the chart
+  // can show them as two independently-toggleable series) rather than
+  // collapsed into one metricValue() number — byStoreCash/byStoreCredit
+  // carry that; byStore stays empty in that case.
   function buildSeries(filters) {
     const isDriverMetric = filters.metric === "driverPay";
+    const isSplit = filters.metric === "tipsSplit";
     let rows = isDriverMetric ? analyticsData.deliveryRows : analyticsData.tipRows;
     if (filters.storeId !== "all") rows = rows.filter((r) => r.branchId === filters.storeId);
     if (!isDriverMetric && filters.employeeId !== "all") rows = rows.filter((r) => r.employeeId === filters.employeeId);
@@ -422,15 +428,36 @@
 
     const bucketLabels = new Map();
     const byStore = new Map();
+    const byStoreCash = new Map();
+    const byStoreCredit = new Map();
     for (const row of rows) {
       const { key, label } = bucketKeyAndLabel(row.date, filters.period);
       bucketLabels.set(key, label);
-      if (!byStore.has(row.branchId)) byStore.set(row.branchId, new Map());
-      const m = byStore.get(row.branchId);
-      m.set(key, (m.get(key) || 0) + metricValue(row, filters.metric));
+      if (isSplit) {
+        if (!byStoreCash.has(row.branchId)) {
+          byStoreCash.set(row.branchId, new Map());
+          byStoreCredit.set(row.branchId, new Map());
+        }
+        const mc = byStoreCash.get(row.branchId);
+        const mr = byStoreCredit.get(row.branchId);
+        mc.set(key, (mc.get(key) || 0) + row.cashTips);
+        mr.set(key, (mr.get(key) || 0) + row.creditTips);
+      } else {
+        if (!byStore.has(row.branchId)) byStore.set(row.branchId, new Map());
+        const m = byStore.get(row.branchId);
+        m.set(key, (m.get(key) || 0) + metricValue(row, filters.metric));
+      }
     }
     const bucketKeys = Array.from(bucketLabels.keys()).sort();
-    return { bucketKeys, bucketLabels, byStore };
+    return { bucketKeys, bucketLabels, byStore, byStoreCash, byStoreCredit, isSplit };
+  }
+
+  // Sums a store->bucket->value map down to one bucket->value series,
+  // across whichever store(s) are currently in play (buildSeries() has
+  // already applied the store filter upstream, so this naturally collapses
+  // to a single store's numbers when one is selected).
+  function sumAcrossStores(byStoreMetric, bucketKeys) {
+    return bucketKeys.map((k) => round2(Array.from(byStoreMetric.values()).reduce((sum, m) => sum + (m.get(k) || 0), 0)));
   }
 
   function destroyCharts() {
@@ -439,13 +466,20 @@
   }
 
   function metricLabel(metric) {
-    return { cashTips: "Cash tips (€)", creditTips: "Credit tips (€)", tips: "Cash + credit tips (€)", driverPay: "Drivers' pay (€)" }[metric];
+    return {
+      cashTips: "Cash tips (€)",
+      creditTips: "Credit tips (€)",
+      tips: "Cash + credit tips (€)",
+      tipsSplit: "Cash vs credit tips (€)",
+      driverPay: "Drivers' pay (€)",
+    }[metric];
   }
 
   function renderAnalytics() {
     destroyCharts();
     const filters = getAnalyticsFilters();
-    const { bucketKeys: allBucketKeys, bucketLabels, byStore } = buildSeries(filters);
+    const { bucketKeys: allBucketKeys, bucketLabels, byStore, byStoreCash, byStoreCredit, isSplit } = buildSeries(filters);
+    filters.isSplit = isSplit; // buildSeries() computes this; the render functions below read it off filters
     const bucketKeys = filters.bucketKey === "all" ? allBucketKeys : allBucketKeys.filter((k) => k === filters.bucketKey);
     const branchNameById = new Map(analyticsData.branches.map((b) => [b.id, b.name]));
     const body = document.getElementById("analytics-body");
@@ -456,22 +490,33 @@
     }
 
     if (filters.view === "table") {
-      renderAnalyticsTable(body, bucketKeys, bucketLabels, byStore, branchNameById);
+      renderAnalyticsTable(body, bucketKeys, bucketLabels, byStore, branchNameById, filters, byStoreCash, byStoreCredit);
     } else if (filters.view === "multiples") {
-      renderAnalyticsMultiples(body, bucketKeys, bucketLabels, byStore, branchNameById, filters);
+      renderAnalyticsMultiples(body, bucketKeys, bucketLabels, byStore, branchNameById, filters, byStoreCash, byStoreCredit);
     } else {
-      renderAnalyticsBar(body, bucketKeys, bucketLabels, byStore, branchNameById, filters);
+      renderAnalyticsBar(body, bucketKeys, bucketLabels, byStore, branchNameById, filters, byStoreCash, byStoreCredit);
     }
   }
 
-  function renderAnalyticsBar(body, bucketKeys, bucketLabels, byStore, branchNameById, filters) {
+  // The two colors used for every cash/credit pairing below (bar, per-store
+  // multiples, table) — kept separate from CHART_COLORS' by-store palette
+  // so "cash" and "credit" always read the same regardless of view.
+  const CASH_COLOR = "#2563eb";
+  const CREDIT_COLOR = "#16a34a";
+
+  function renderAnalyticsBar(body, bucketKeys, bucketLabels, byStore, branchNameById, filters, byStoreCash, byStoreCredit) {
     body.innerHTML = `<div class="analytics-chart-wrap"><canvas id="an-canvas"></canvas></div>`;
     const labels = bucketKeys.map((k) => bucketLabels.get(k));
-    const datasets = Array.from(byStore.entries()).map(([branchId, m], i) => ({
-      label: branchNameById.get(branchId) || branchId,
-      data: bucketKeys.map((k) => round2(m.get(k) || 0)),
-      backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
-    }));
+    const datasets = filters.isSplit
+      ? [
+          { label: "Cash tips (€)", data: sumAcrossStores(byStoreCash, bucketKeys), backgroundColor: CASH_COLOR },
+          { label: "Credit tips (€)", data: sumAcrossStores(byStoreCredit, bucketKeys), backgroundColor: CREDIT_COLOR },
+        ]
+      : Array.from(byStore.entries()).map(([branchId, m], i) => ({
+          label: branchNameById.get(branchId) || branchId,
+          data: bucketKeys.map((k) => round2(m.get(k) || 0)),
+          backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+        }));
     const ctx = document.getElementById("an-canvas").getContext("2d");
     analyticsCharts.push(
       new Chart(ctx, {
@@ -480,6 +525,9 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          // Chart.js legend items are clickable by default — clicking
+          // "Cash tips" or "Credit tips" toggles that bar series on/off,
+          // which is the "select both in the legend" behavior asked for.
           plugins: { legend: { display: datasets.length > 1 }, title: { display: true, text: metricLabel(filters.metric) } },
           scales: { y: { beginAtZero: true } },
         },
@@ -487,9 +535,10 @@
     );
   }
 
-  function renderAnalyticsMultiples(body, bucketKeys, bucketLabels, byStore, branchNameById, filters) {
+  function renderAnalyticsMultiples(body, bucketKeys, bucketLabels, byStore, branchNameById, filters, byStoreCash, byStoreCredit) {
     const labels = bucketKeys.map((k) => bucketLabels.get(k));
-    body.innerHTML = `<div class="analytics-multiples">${Array.from(byStore.keys())
+    const storeIds = filters.isSplit ? Array.from(byStoreCash.keys()) : Array.from(byStore.keys());
+    body.innerHTML = `<div class="analytics-multiples">${storeIds
       .map((branchId) => `
         <div class="analytics-multiple-card">
           <h3>${escapeHtml(branchNameById.get(branchId) || branchId)}</h3>
@@ -497,25 +546,28 @@
         </div>
       `)
       .join("")}</div>`;
-    Array.from(byStore.entries()).forEach(([branchId, m], i) => {
+    storeIds.forEach((branchId, i) => {
       const ctx = document.getElementById(`an-canvas-${branchId}`).getContext("2d");
+      const datasets = filters.isSplit
+        ? [
+            { label: "Cash tips (€)", data: bucketKeys.map((k) => round2(byStoreCash.get(branchId).get(k) || 0)), backgroundColor: CASH_COLOR },
+            { label: "Credit tips (€)", data: bucketKeys.map((k) => round2(byStoreCredit.get(branchId).get(k) || 0)), backgroundColor: CREDIT_COLOR },
+          ]
+        : [
+            {
+              label: metricLabel(filters.metric),
+              data: bucketKeys.map((k) => round2(byStore.get(branchId).get(k) || 0)),
+              backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+            },
+          ];
       analyticsCharts.push(
         new Chart(ctx, {
           type: "bar",
-          data: {
-            labels,
-            datasets: [
-              {
-                label: metricLabel(filters.metric),
-                data: bucketKeys.map((k) => round2(m.get(k) || 0)),
-                backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
-              },
-            ],
-          },
+          data: { labels, datasets },
           options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            plugins: { legend: { display: filters.isSplit } },
             scales: { y: { beginAtZero: true } },
           },
         })
@@ -523,7 +575,23 @@
     });
   }
 
-  function renderAnalyticsTable(body, bucketKeys, bucketLabels, byStore, branchNameById) {
+  function renderAnalyticsTable(body, bucketKeys, bucketLabels, byStore, branchNameById, filters, byStoreCash, byStoreCredit) {
+    if (filters.isSplit) {
+      const rows = bucketKeys
+        .map((k) => {
+          const cash = round2(Array.from(byStoreCash.values()).reduce((sum, m) => sum + (m.get(k) || 0), 0));
+          const credit = round2(Array.from(byStoreCredit.values()).reduce((sum, m) => sum + (m.get(k) || 0), 0));
+          return `<tr><td>${bucketLabels.get(k)}</td><td>${formatMoney(cash)}</td><td>${formatMoney(credit)}</td><td><strong>${formatMoney(round2(cash + credit))}</strong></td></tr>`;
+        })
+        .join("");
+      body.innerHTML = `
+        <table>
+          <thead><tr><th>Period</th><th>Cash (€)</th><th>Credit (€)</th><th>Total</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+      return;
+    }
     const storeIds = Array.from(byStore.keys());
     const headerCells = storeIds.map((id) => `<th>${escapeHtml(branchNameById.get(id) || id)}</th>`).join("");
     const rows = bucketKeys
