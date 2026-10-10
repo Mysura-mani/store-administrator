@@ -415,7 +415,12 @@ async function getEntry(branchId, id) {
 // list (active or inactive — an inactive one can still appear in an entry
 // being edited) so an entry can never end up referencing another branch's
 // employee, whether by a malicious request or a stale/bogus ID.
-function validateEntryInput(input, validEmployeeIds) {
+// `allowEmptyShifts` is only true from updateEntry() below — editing an
+// existing entry down to zero employees is a deliberate "clear this day"
+// action (confirmed in the UI first), which updateEntry already turns into
+// effectively deleting the entry's rows. A brand-new entry with no one on
+// it would just be pointless, so addEntry() keeps the strict check.
+function validateEntryInput(input, validEmployeeIds, { allowEmptyShifts = false } = {}) {
   if (!input.date || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
     throw new Error("A valid date is required.");
   }
@@ -431,7 +436,7 @@ function validateEntryInput(input, validEmployeeIds) {
       if (!Number.isFinite(hours) || hours <= 0) throw new Error("Each employee's hours must be a positive number.");
       return { employeeId: s.employeeId, hours };
     });
-  if (cleanShifts.length === 0) throw new Error("Add at least one employee with hours worked.");
+  if (!allowEmptyShifts && cleanShifts.length === 0) throw new Error("Add at least one employee with hours worked.");
   return { date: input.date, cashTips, creditTips, shifts: cleanShifts };
 }
 
@@ -465,7 +470,7 @@ async function updateEntry(branchId, id, input) {
   if (!existing) return null;
   const employees = await listEmployees(branchId, { includeInactive: true });
   const nameById = new Map(employees.map((e) => [e.id, e.name]));
-  const clean = validateEntryInput(input, new Set(employees.map((e) => e.id)));
+  const clean = validateEntryInput(input, new Set(employees.map((e) => e.id)), { allowEmptyShifts: true });
   // The number of shifts can differ from what was saved before, so replace
   // every row for this entry rather than updating them one-for-one — delete
   // in descending row order first so earlier deletes don't shift the row

@@ -57,9 +57,19 @@
 
 * { box-sizing: border-box; }
 
+/* Several elements (.btn-google, .or-divider, ...) set their own `display`
+   to flex, which otherwise wins over the browser's default [hidden] rule at
+   equal specificity — toggling the `hidden` property/attribute from JS would
+   silently do nothing on those. This keeps `hidden` authoritative everywhere. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* App-wide handwritten look. Comic Sans MS's paired Bold variant is what
+     every existing font-weight:600/700 declaration (headings, labels,
+     buttons, sidebar nav, ...) automatically renders in — no need to touch
+     those separately. */
+  font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", "Marker Felt", cursive, sans-serif;
   background: var(--bg);
   color: var(--text);
 }
@@ -95,6 +105,14 @@ label {
   margin-bottom: 6px;
   margin-top: 14px;
   color: var(--text);
+}
+
+input, select, textarea, button, .cdd-trigger {
+  /* Form controls don't inherit the page font by default in most browsers
+     (they fall back to the OS UI font instead) — without this, every
+     input/select/button on the page quietly ignores body's font-family
+     regardless of what it's set to. */
+  font-family: inherit;
 }
 
 input, select, .cdd-trigger {
@@ -588,97 +606,363 @@ tbody tr:hover { background: var(--row-hover); }
   flex-shrink: 0;
 }
 
-/* ---------- account picker (carousel-style login) ---------- */
-.login-select-page {
+/* ---------- cinematic hero (day/night sky + floating login card) ---------- */
+.hero {
+  position: relative;
   min-height: 100vh;
-  background: var(--bg);
+  min-height: 100svh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  padding: 24px 24px 0;
-}
-.login-select-header {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  max-width: 1000px;
-  margin: 0 auto;
-  width: 100%;
-}
-.login-select-intro { text-align: center; margin-top: 48px; }
-.login-select-intro h1 { font-size: 32px; margin-bottom: 8px; }
-.login-select-intro .subtitle { margin-bottom: 0; }
-.login-select-page .login-error { text-align: center; min-height: 20px; margin-top: 18px; }
-
-.account-carousel {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  flex: 1;
-  padding: 24px 16px 60px;
-  max-width: 1100px;
-  margin: 0 auto;
-  width: 100%;
-}
-.carousel-arrow {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--card);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-.carousel-arrow:hover { background: var(--surface-hover); }
-
-.account-track {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 20px;
-  flex-wrap: wrap;
+  isolation: isolate;
 }
 
-.account-card {
-  flex: 0 0 auto;
+.hero-sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(180deg, #2f72c4 0%, #6fa8e8 55%, #cfe6fb 100%);
+  transition: background 2.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.hero.night .hero-sky { background: linear-gradient(180deg, #05060f 0%, #140f33 55%, #2a1f55 100%); }
+
+.hero-bottom-scrim {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 140px;
+  z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.3));
+}
+
+/* ----- stars + shooting stars (night only) ----- */
+.hero-stars { position: absolute; inset: 0; z-index: 1; opacity: 0; pointer-events: none; transition: opacity 1.6s ease 0.5s; }
+.hero.night .hero-stars { opacity: 1; }
+.hstar { position: absolute; background: #fff; border-radius: 50%; animation: hero-twinkle 3s ease-in-out infinite; }
+@keyframes hero-twinkle { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+.hero-shooting-stars { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+.hshooting-star {
+  position: absolute;
   width: 140px;
-  padding: 24px 16px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  text-align: center;
+  height: 2px;
+  background: linear-gradient(90deg, #fff, rgba(255, 255, 255, 0));
+  border-radius: 2px;
+  opacity: 0;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.8));
+  animation: hero-shoot var(--dur, 1.1s) linear forwards;
+}
+@keyframes hero-shoot {
+  0% { opacity: 0; transform: translate(0, 0) rotate(var(--angle, 20deg)); }
+  8% { opacity: 1; }
+  82% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--dx, 380px), var(--dy, 200px)) rotate(var(--angle, 20deg)); }
+}
+
+/* ----- clouds (two depth layers for parallax) ----- */
+.hero-clouds { position: absolute; inset: 0; z-index: 2; transition: filter 1.3s ease; }
+.hero.night .hero-clouds { filter: brightness(0.4) saturate(1.05); }
+.hcloud { position: absolute; background: #fff; border-radius: 50px; opacity: 0.92; }
+.hcloud::before, .hcloud::after { content: ""; position: absolute; background: inherit; border-radius: 50%; }
+.hcloud-far { opacity: 0.7; }
+.hcloud-1 { width: 180px; height: 52px; top: 16%; left: -220px; animation: hcloud-drift 72s linear infinite; }
+.hcloud-1::before { width: 70px; height: 70px; top: -34px; left: 20px; }
+.hcloud-1::after { width: 52px; height: 52px; top: -22px; left: 92px; }
+.hcloud-2 { width: 140px; height: 40px; top: 9%; left: -220px; animation: hcloud-drift 96s linear infinite; animation-delay: -30s; }
+.hcloud-2::before { width: 54px; height: 54px; top: -26px; left: 14px; }
+.hcloud-2::after { width: 40px; height: 40px; top: -16px; left: 72px; }
+.hcloud-3 { width: 230px; height: 64px; top: 28%; left: -260px; animation: hcloud-drift 46s linear infinite; }
+.hcloud-3::before { width: 86px; height: 86px; top: -42px; left: 26px; }
+.hcloud-3::after { width: 64px; height: 64px; top: -28px; left: 116px; }
+.hcloud-4 { width: 170px; height: 46px; top: 38%; left: -260px; animation: hcloud-drift 58s linear infinite; animation-delay: -20s; }
+.hcloud-4::before { width: 62px; height: 62px; top: -30px; left: 16px; }
+.hcloud-4::after { width: 46px; height: 46px; top: -20px; left: 84px; }
+@keyframes hcloud-drift { from { transform: translateX(0); } to { transform: translateX(130vw); } }
+
+/* ----- birds (SVG silhouettes, three depths) ----- */
+.hero-birds { position: absolute; inset: 0; z-index: 3; transition: opacity 0.7s ease; }
+.hero.night .hero-birds { opacity: 0; }
+.hbird { position: absolute; left: -110px; fill: #232733; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.18)); }
+.hbird .wing { transform-box: fill-box; }
+.hbird .wing-left { transform-origin: 100% 50%; animation: hwing-flap 0.55s ease-in-out infinite alternate; }
+.hbird .wing-right { transform-origin: 0% 50%; animation: hwing-flap 0.55s ease-in-out infinite alternate; }
+@keyframes hwing-flap { from { transform: scaleY(1); } to { transform: scaleY(0.35) translateY(2px); } }
+.hbird-1 { top: 18%; width: 92px; height: 46px; opacity: 1; animation: hfly-1 22s linear infinite; }
+.hbird-2 { top: 32%; width: 60px; height: 30px; opacity: 0.85; animation: hfly-2 30s linear infinite; animation-delay: -9s; }
+.hbird-3 { top: 11%; width: 40px; height: 20px; opacity: 0.6; animation: hfly-3 38s linear infinite; animation-delay: -20s; }
+@keyframes hfly-1 { 0% { transform: translate(0, 0); } 45% { transform: translate(55vw, -30px); } 100% { transform: translate(120vw, 10px); } }
+@keyframes hfly-2 { 0% { transform: translate(0, 0); } 55% { transform: translate(60vw, 20px); } 100% { transform: translate(120vw, -16px); } }
+@keyframes hfly-3 { 0% { transform: translate(0, 0); } 50% { transform: translate(58vw, -12px); } 100% { transform: translate(120vw, 8px); } }
+
+/* ----- HX46 logo ----- */
+.hero-logo { position: relative; z-index: 5; text-align: center; margin-top: 44px; pointer-events: none; }
+.hero-logo-mark {
+  font-size: clamp(54px, 8vw, 112px);
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1;
+  color: #11151c;
+  transition: color 1.1s ease, filter 1.1s ease;
+}
+.hero.night .hero-logo-mark { color: #fff; filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.45)); }
+.hero-logo-sub {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 14px;
+  border-radius: 999px;
+  color: rgba(17, 21, 28, 0.75);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(6px);
+  transition: color 1.1s ease, background 1.1s ease;
+}
+.hero.night .hero-logo-sub { color: rgba(255, 255, 255, 0.85); background: rgba(255, 255, 255, 0.12); }
+.hero-logo-sub span { color: #2563eb; }
+.hero.night .hero-logo-sub span { color: #7fb2ff; }
+
+/* ----- sun / moon (JS parallax wrapper > idle-float > interactive body) ----- */
+/* Wrapper layers are click-through — only the actual sun/moon button (below)
+   is ever meant to receive pointer events. Without this, the hidden moon's
+   full-size wrapper (same position, later in DOM order) silently sits on
+   top of the sun and swallows its hover/click. */
+/* right uses max(%, centered-stage fallback) so the sun/moon stay a
+   bounded distance from center on very wide screens instead of drifting
+   further right forever — see the matching note on .hero-login-card. */
+.celestial-parallax { position: absolute; z-index: 4; top: 9%; right: max(9%, calc(50% - 630px)); pointer-events: none; }
+.celestial-float { animation: celestial-idle 7s ease-in-out infinite; pointer-events: none; }
+.celestial { pointer-events: auto; }
+@keyframes celestial-idle { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-7px) scale(1.015); } }
+
+.celestial {
+  position: relative;
+  display: block;
+  width: 116px;
+  height: 116px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
   cursor: pointer;
-  opacity: 0.6;
-  transform: scale(0.92);
-  transition: opacity 0.2s ease, transform 0.2s ease, width 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
-.account-card:hover { opacity: 0.85; }
-.account-card.active {
-  width: 300px;
-  max-width: 100%;
+.celestial:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+
+.celestial-sun { transition: transform 1s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.9s ease; }
+.hero.night .celestial-sun { transform: translate(70px, -80px) scale(0.3); opacity: 0; pointer-events: none; }
+.celestial-sun:hover, .celestial-sun:focus-visible { transform: scale(1.05); }
+
+.sun-rays {
+  position: absolute;
+  inset: -24px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 210, 120, 0.35) 0deg 4deg, transparent 4deg 18deg);
+  mask-image: radial-gradient(circle, transparent 54%, #000 58%, #000 70%, transparent 100%);
+  -webkit-mask-image: radial-gradient(circle, transparent 54%, #000 58%, #000 70%, transparent 100%);
+  opacity: 0.55;
+  animation: sun-rotate 44s linear infinite;
+}
+@keyframes sun-rotate { to { transform: rotate(360deg); } }
+.sun-corona {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 200, 90, 0.55) 0%, rgba(255, 170, 60, 0.25) 45%, rgba(255, 170, 60, 0) 72%);
+  filter: blur(2px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.celestial-sun:hover .sun-corona, .celestial-sun:focus-visible .sun-corona { opacity: 1.2; transform: scale(1.14); }
+.sun-body {
+  position: absolute;
+  inset: 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, #fff8d8 0%, #ffe085 28%, #ffb347 62%, #ff8a3d 100%);
+  box-shadow: inset 0 0 2px rgba(255, 255, 255, 0.6);
+}
+
+.celestial-moon {
+  transform: translate(-56px, -70px) scale(0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 1.2s cubic-bezier(0.22, 1, 0.36, 1) 0.5s, opacity 1s ease 0.5s;
+}
+.hero.night .celestial-moon { transform: translate(0, 0) scale(1); opacity: 1; pointer-events: auto; }
+.hero.night .celestial-moon:hover, .hero.night .celestial-moon:focus-visible { transform: scale(1.05); }
+.moon-halo {
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(220, 228, 255, 0.45) 0%, rgba(200, 210, 255, 0.18) 50%, rgba(200, 210, 255, 0) 75%);
+  filter: blur(3px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.hero.night .celestial-moon:hover .moon-halo, .hero.night .celestial-moon:focus-visible .moon-halo { opacity: 1.2; transform: scale(1.1); }
+.moon-body {
+  position: absolute;
+  inset: 18px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(circle at 32% 30%, #ffffff 0%, #eef2fb 30%, #c9d2e8 65%, #9aa6c2 100%);
+  box-shadow: inset -10px -6px 18px rgba(30, 30, 60, 0.25);
+}
+.crater { position: absolute; border-radius: 50%; background: rgba(120, 130, 160, 0.35); box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.15); }
+.crater.c1 { width: 13px; height: 13px; top: 22%; left: 26%; }
+.crater.c2 { width: 8px; height: 8px; top: 48%; left: 60%; }
+.crater.c3 { width: 7px; height: 7px; top: 66%; left: 30%; }
+.crater.c4 { width: 10px; height: 10px; top: 30%; left: 62%; }
+
+.celestial-tooltip {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-top: 6px;
+  transform: translate(-50%, 6px);
+  min-width: 168px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(20, 24, 34, 0.55);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.celestial-tooltip strong { display: block; font-weight: 700; margin-bottom: 2px; }
+.celestial-sun:hover + .celestial-tooltip, .celestial-sun:focus-visible + .celestial-tooltip,
+.hero.night .celestial-moon:hover + .celestial-tooltip, .hero.night .celestial-moon:focus-visible + .celestial-tooltip {
   opacity: 1;
-  transform: scale(1);
-  border: 2px solid var(--primary);
-  box-shadow: 0 12px 32px rgba(37, 99, 235, 0.18);
-  cursor: default;
+  transform: translate(-50%, 0);
 }
-.account-icon { font-size: 40px; margin-bottom: 10px; }
-.account-card.active .account-icon { font-size: 52px; }
-.account-name { font-weight: 700; font-size: 15px; color: var(--text); }
-.account-card.active .account-name { font-size: 20px; margin-bottom: 18px; }
 
-.account-login-form { text-align: left; margin-top: 4px; }
-.account-login-form label { margin-top: 12px; }
+/* ----- floating glass login card ----- */
+.hero-login-card {
+  position: absolute;
+  z-index: 6;
+  top: 54%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 380px;
+  max-width: 88vw;
+  padding: 32px 28px;
+  border-radius: 24px;
+  background: rgba(20, 24, 34, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 20px 60px rgba(10, 20, 40, 0.3);
+  color: #fff;
+}
+/* ----- interactive bird/owl mascots perched on the card's top edge ----- */
+.mascot-perch {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 100%;
+  height: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  pointer-events: none;
+  z-index: 7;
+}
+.mascot-bird-wrap { width: 78px; transform-origin: 50% 100%; filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.22)); }
+.mascot-bird-wrap-1 { width: 92px; margin-bottom: -4px; }
+.mascot-bird { display: block; width: 100%; height: auto; overflow: visible; }
+.mascot-owl-wrap {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 150px;
+  transform: translateX(-50%);
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.3));
+}
+.mascot-owl { display: block; width: 100%; height: auto; overflow: visible; }
+/* SVG elements default to resolving percentage transform-origin against
+   the whole <svg> viewport, not the element's own shape — without this,
+   scaling/rotating a small part (an eyelid, a wing) from "50% 0%" pivots
+   around the top-center of the entire bird instead of that part's own
+   top edge, which is what produced the stray shape floating above the
+   head. fill-box makes the origin relative to each element's own
+   geometry, as intended throughout the mascot animations. */
+.bird-head, .bird-wing, .bird-tail, .owl-head, .owl-wing {
+  transform-box: fill-box;
+}
+.bird-pupil, .owl-pupil { will-change: transform; }
+/* Closed-eye stroke paths fade in/out via opacity (see login-mascots.js) —
+   the SVG's own opacity="0" attribute is the default; this just documents
+   it and keeps them non-interactive/non-scaling. */
+.bird-eyelid-closed, .owl-eyelid-closed { pointer-events: none; }
 
-@media (max-width: 620px) {
-  .login-select-intro { margin-top: 24px; }
-  .account-card.active { width: 100%; }
+@media (max-width: 860px) {
+  .mascot-bird-wrap { width: 58px; }
+  .mascot-bird-wrap-1 { width: 68px; }
+  .mascot-owl-wrap { width: 112px; }
+}
+
+.hero-login-card .login-select-intro { text-align: left; margin: 0 0 18px; }
+.hero-login-card .login-select-intro h1 { font-size: 27px; margin-bottom: 4px; color: #fff; }
+.hero-login-card .login-select-intro .subtitle { margin-bottom: 0; color: rgba(255, 255, 255, 0.72); }
+.hero-login-card label { color: rgba(255, 255, 255, 0.85); }
+
+.password-field { position: relative; }
+.password-field input { padding-right: 42px; }
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  padding: 6px;
+  display: flex;
+  color: var(--muted);
+  cursor: pointer;
+}
+.password-toggle:hover { color: var(--text); }
+.password-toggle .icon-eye-off { display: none; }
+.password-toggle.is-visible .icon-eye { display: none; }
+.password-toggle.is-visible .icon-eye-off { display: block; }
+.hero-login-card .password-toggle { color: rgba(255, 255, 255, 0.65); }
+.hero-login-card .password-toggle:hover { color: #fff; }
+.hero-login-card input, .hero-login-card select, .hero-login-card .cdd-trigger {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+.hero-login-card input::placeholder { color: rgba(255, 255, 255, 0.5); }
+.hero-login-card .cdd-chevron { color: rgba(255, 255, 255, 0.7); }
+.hero-login-card .login-error { min-height: 20px; margin: 4px 0 0; color: #ffb4b4; }
+.hero-login-card .account-login-form { margin-top: 4px; }
+.hero-login-card .or-divider { color: rgba(255, 255, 255, 0.6); }
+.hero-login-card .or-divider::before, .hero-login-card .or-divider::after { background: rgba(255, 255, 255, 0.25); }
+.hero-login-card .btn-google { background: rgba(255, 255, 255, 0.94); border-color: rgba(255, 255, 255, 0.4); color: #1c2230; }
+.hero-login-card .btn-google:hover { background: #fff; }
+
+.hero .login-legal-footer { z-index: 6; color: rgba(255, 255, 255, 0.82); }
+.hero .login-legal-footer a { color: rgba(255, 255, 255, 0.82); }
+
+@media (max-width: 860px) {
+  .hero-logo { margin-top: 32px; }
+  .hero-logo-mark { font-size: 48px; }
+  .celestial-parallax { top: 6%; right: 6%; }
+  .celestial { width: 76px; height: 76px; }
+  .hero-login-card {
+    position: static;
+    margin: 170px auto 100px;
+    transform: none;
+    width: 100%;
+  }
+  .hbird-3 { display: none; }
+}
+@media (max-width: 460px) {
+  .hero-logo-mark { font-size: 32px; }
+  .hero-login-card { padding: 26px 20px; border-radius: 18px; margin-top: 150px; }
 }
 
 @media (max-width: 620px) {

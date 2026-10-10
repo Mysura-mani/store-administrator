@@ -157,6 +157,17 @@
 
     const id = document.getElementById("entry-id").value;
 
+    // Editing an existing entry down to zero employees clears the day
+    // entirely (there's no "entry with no one on it" to keep) — confirm
+    // first since that's a one-way deletion. A brand-new entry just hits
+    // the backend's normal "add at least one employee" error below.
+    if (id && payload.shifts.length === 0) {
+      const ok = await confirmDialog(
+        "No employees are on this entry anymore. Saving will remove this day's tip record entirely. Are you sure?"
+      );
+      if (!ok) return;
+    }
+
     try {
       if (id) {
         await api(`/api/entries/${id}`, { method: "PUT", body: JSON.stringify(payload) });

@@ -8,23 +8,96 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="login-select-page">
-  <div class="login-select-header">
-    <div class="brand">Administration<span>Tracker</span></div>
-    <button type="button" class="theme-toggle-inline" id="theme-toggle-btn"></button>
+<div class="hero" id="hero">
+  <div class="hero-sky"></div>
+  <div class="hero-stars" id="hero-stars"></div>
+  <div class="hero-shooting-stars" id="hero-shooting-stars"></div>
+
+  <div class="hero-clouds" id="hero-clouds">
+    <span class="hcloud hcloud-far hcloud-1"></span>
+    <span class="hcloud hcloud-far hcloud-2"></span>
+    <span class="hcloud hcloud-near hcloud-3"></span>
+    <span class="hcloud hcloud-near hcloud-4"></span>
   </div>
 
-  <div class="login-select-intro">
-    <h1>Choose your account</h1>
-    <p class="subtitle">Select where you'd like to log in, then enter your password.</p>
+  <div class="hero-birds" id="hero-birds">
+    <svg class="hbird hbird-1" viewBox="0 0 100 50" aria-hidden="true">
+      <path class="wing wing-left" d="M50,27 Q24,4 2,20 Q27,25 50,27 Z" />
+      <path class="wing wing-right" d="M50,27 Q76,4 98,20 Q73,25 50,27 Z" />
+    </svg>
+    <svg class="hbird hbird-2" viewBox="0 0 100 50" aria-hidden="true">
+      <path class="wing wing-left" d="M50,27 Q24,4 2,20 Q27,25 50,27 Z" />
+      <path class="wing wing-right" d="M50,27 Q76,4 98,20 Q73,25 50,27 Z" />
+    </svg>
+    <svg class="hbird hbird-3" viewBox="0 0 100 50" aria-hidden="true">
+      <path class="wing wing-left" d="M50,27 Q24,4 2,20 Q27,25 50,27 Z" />
+      <path class="wing wing-right" d="M50,27 Q76,4 98,20 Q73,25 50,27 Z" />
+    </svg>
   </div>
 
-  <div class="login-error" id="error"></div>
+  <div class="hero-bottom-scrim"></div>
 
-  <div class="account-carousel">
-    <button type="button" class="carousel-arrow" id="carousel-prev" aria-label="Previous account">&larr;</button>
-    <div class="account-track" id="account-track"></div>
-    <button type="button" class="carousel-arrow" id="carousel-next" aria-label="Next account">&rarr;</button>
+  <div class="hero-logo">
+    <div class="hero-logo-mark">HX46</div>
+    <div class="hero-logo-sub">Administration<span>Tracker</span></div>
+  </div>
+
+  <div class="celestial-parallax" id="sun-parallax">
+    <div class="celestial-float">
+      <button type="button" class="celestial celestial-sun" id="celestial-sun" aria-label="Switch to night">
+        <span class="sun-rays"></span>
+        <span class="sun-corona"></span>
+        <span class="sun-body"></span>
+      </button>
+      <span class="celestial-tooltip"><strong>Too warm?</strong>Click to change to moon!</span>
+    </div>
+  </div>
+  <div class="celestial-parallax" id="moon-parallax">
+    <div class="celestial-float">
+      <button type="button" class="celestial celestial-moon" id="celestial-moon" aria-label="Switch to day">
+        <span class="moon-halo"></span>
+        <span class="moon-body">
+          <span class="crater c1"></span><span class="crater c2"></span><span class="crater c3"></span><span class="crater c4"></span>
+        </span>
+      </button>
+      <span class="celestial-tooltip"><strong>Need more light?</strong>Click to change to sun!</span>
+    </div>
+  </div>
+
+  <div class="hero-login-card">
+    <div class="mascot-perch" id="mascot-perch" aria-hidden="true"></div>
+
+    <div class="login-select-intro">
+      <h1>Welcome back</h1>
+      <p class="subtitle">Choose your account</p>
+    </div>
+
+    <div class="login-error" id="error"></div>
+
+    <label for="account-select">Account</label>
+    <select id="account-select"></select>
+
+    <form id="acct-login-form" class="account-login-form">
+      <div id="acct-username-field" hidden>
+        <label for="acct-username">Username</label>
+        <input type="text" id="acct-username" autocomplete="username" />
+      </div>
+      <label for="acct-password">Password</label>
+      <div class="password-field">
+        <input type="password" id="acct-password" autocomplete="current-password" />
+        <button type="button" class="password-toggle" id="password-toggle" aria-label="Show password">
+          <svg class="icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
+      <button type="submit" class="btn-primary btn-full">Log in</button>
+    </form>
+
+    <div class="or-divider" id="google-divider" hidden><span>OR</span></div>
+    <button type="button" class="btn-google btn-full" id="google-btn" hidden>
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.61z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97L3.95 7.3C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+      Continue with Google
+    </button>
   </div>
 
   <div class="login-legal-footer">
@@ -34,7 +107,9 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
 <script src="/common.js"></script>
+<script src="/login-mascots.js"></script>
 <script>
   let accounts = [];
   let activeIndex = 0;
@@ -52,71 +127,38 @@
     google_login_failed: "Google sign-in failed. Please try again.",
   };
 
-  function cardHtml(account, index) {
-    if (index !== activeIndex) {
-      return `
-        <button type="button" class="account-card" data-index="${index}">
-          <div class="account-icon">${account.icon}</div>
-          <div class="account-name">${escapeHtml(account.name)}</div>
-        </button>
-      `;
-    }
-    const usernameField =
-      account.type === "others"
-        ? `<label for="acct-username">Username</label>
-           <input type="text" id="acct-username" autocomplete="username" />`
-        : "";
-    const googleBlock =
-      account.type === "owner" && googleAvailable
-        ? `<div class="or-divider"><span>OR</span></div>
-           <button type="button" class="btn-google btn-full" id="google-btn">
-             <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.61z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97L3.95 7.3C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
-             Continue with Google
-           </button>`
-        : "";
-    return `
-      <div class="account-card active" data-index="${index}">
-        <div class="account-icon">${account.icon}</div>
-        <div class="account-name">${escapeHtml(account.name)}</div>
-        <form id="acct-login-form" class="account-login-form">
-          ${usernameField}
-          <label for="acct-password">Password</label>
-          <input type="password" id="acct-password" autocomplete="current-password" />
-          <button type="submit" class="btn-primary btn-full" style="margin-top:16px">Log in</button>
-        </form>
-        ${googleBlock}
-      </div>
-    `;
+  function populateAccountSelect() {
+    const select = document.getElementById("account-select");
+    select.innerHTML = accounts
+      .map((a, i) => `<option value="${i}">${escapeHtml(a.icon)} ${escapeHtml(a.name)}</option>`)
+      .join("");
+    select.value = String(activeIndex);
   }
 
-  function render() {
-    document.getElementById("account-track").innerHTML = accounts.map((a, i) => cardHtml(a, i)).join("");
+  function renderFormFields() {
+    const account = accounts[activeIndex];
 
-    document.querySelectorAll(".account-card:not(.active)").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        activeIndex = Number(btn.dataset.index);
-        document.getElementById("error").textContent = "";
-        render();
-      });
-    });
+    document.getElementById("acct-username-field").hidden = account.type !== "others";
+    document.getElementById("acct-username").value = "";
+    document.getElementById("acct-password").value = "";
+    document.getElementById("error").textContent = "";
 
-    const form = document.getElementById("acct-login-form");
-    if (form) form.addEventListener("submit", handleSubmit);
-    const googleBtn = document.getElementById("google-btn");
-    if (googleBtn) googleBtn.addEventListener("click", () => { window.location.href = "/auth/google"; });
+    const showGoogle = account.type === "owner" && googleAvailable;
+    document.getElementById("google-divider").hidden = !showGoogle;
+    document.getElementById("google-btn").hidden = !showGoogle;
 
-    const hasMultiple = accounts.length > 1;
-    document.getElementById("carousel-prev").style.display = hasMultiple ? "flex" : "none";
-    document.getElementById("carousel-next").style.display = hasMultiple ? "flex" : "none";
-
-    // Guide focus straight into the active card's first field, since
-    // choosing an account is only step one — typing the password is what
-    // actually happens next.
-    const usernameInput = document.getElementById("acct-username");
-    const passwordInput = document.getElementById("acct-password");
-    if (usernameInput) usernameInput.focus();
-    else if (passwordInput) passwordInput.focus();
+    // Guide focus straight into the first relevant field, since choosing an
+    // account is only step one — typing the password is what actually
+    // happens next.
+    if (account.type === "others") document.getElementById("acct-username").focus();
+    else document.getElementById("acct-password").focus();
   }
+
+  document.getElementById("account-select").addEventListener("change", (e) => {
+    activeIndex = Number(e.target.value);
+    renderFormFields();
+    if (window.LoginMascots) window.LoginMascots.onAccountChange();
+  });
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -134,24 +176,133 @@
       } else {
         result = await api("/api/login", { method: "POST", body: JSON.stringify({ branchId: account.id, password }) });
       }
-      redirectForRole(result.role);
+      if (window.LoginMascots) window.LoginMascots.onLoginSuccess();
+      setTimeout(() => redirectForRole(result.role), window.LoginMascots ? 650 : 0);
     } catch (err) {
       errorEl.textContent = err.message;
+      if (window.LoginMascots) window.LoginMascots.onLoginError();
     }
   }
+  document.getElementById("acct-login-form").addEventListener("submit", handleSubmit);
+  document.getElementById("google-btn").addEventListener("click", () => { window.location.href = "/auth/google"; });
 
-  document.getElementById("carousel-prev").addEventListener("click", () => {
-    activeIndex = (activeIndex - 1 + accounts.length) % accounts.length;
-    document.getElementById("error").textContent = "";
-    render();
-  });
-  document.getElementById("carousel-next").addEventListener("click", () => {
-    activeIndex = (activeIndex + 1) % accounts.length;
-    document.getElementById("error").textContent = "";
-    render();
+  // The account <select> is hidden by common.js's enhanceSelect() — its
+  // custom trigger button is the thing that actually receives focus, and it
+  // doesn't exist yet at this point in the script, so delegate from
+  // document instead of binding to the (unfocusable) native select directly.
+  document.addEventListener("focusin", (e) => {
+    const wrap = e.target.closest(".cdd-wrap");
+    if (wrap && wrap.querySelector("select") === document.getElementById("account-select")) {
+      if (window.LoginMascots) window.LoginMascots.onAccountFocus();
+    }
   });
 
-  initThemeToggle(document.getElementById("theme-toggle-btn"));
+  const acctPasswordInput = document.getElementById("acct-password");
+  acctPasswordInput.addEventListener("focus", () => { if (window.LoginMascots) window.LoginMascots.onPasswordFocus(); });
+  acctPasswordInput.addEventListener("blur", () => { if (window.LoginMascots) window.LoginMascots.onPasswordBlur(); });
+  acctPasswordInput.addEventListener("input", (e) => {
+    if (window.LoginMascots) window.LoginMascots.onPasswordTyping(e.target.value.length);
+  });
+
+  document.getElementById("password-toggle").addEventListener("click", (e) => {
+    const btn = e.currentTarget;
+    const input = document.getElementById("acct-password");
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    btn.classList.toggle("is-visible", !showing);
+    btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+    if (window.LoginMascots) window.LoginMascots.onPasswordVisibility(!showing);
+  });
+
+  // ---------- hero: day/night, parallax, shooting stars ----------
+  const hero = document.getElementById("hero");
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const isTouch = window.matchMedia("(hover: none)").matches;
+
+  document.getElementById("celestial-sun").addEventListener("click", () => {
+    hero.classList.add("night");
+    if (window.LoginMascots) window.LoginMascots.onDayToNight();
+  });
+  document.getElementById("celestial-moon").addEventListener("click", () => {
+    hero.classList.remove("night");
+    if (window.LoginMascots) window.LoginMascots.onNightToDay();
+  });
+
+  // Star field — generated once; random positions/timings read as natural in
+  // a way a handful of hand-placed elements wouldn't. Fewer on small screens,
+  // per the "reduce particle effects on smaller devices" requirement.
+  (function initStars() {
+    const el = document.getElementById("hero-stars");
+    const count = window.innerWidth < 760 ? 40 : 70;
+    let html = "";
+    for (let i = 0; i < count; i++) {
+      const top = (Math.random() * 65).toFixed(1);
+      const left = (Math.random() * 100).toFixed(1);
+      const delay = (Math.random() * 4).toFixed(2);
+      const size = (Math.random() * 1.8 + 1).toFixed(2);
+      html += `<span class="hstar" style="top:${top}%; left:${left}%; animation-delay:${delay}s; width:${size}px; height:${size}px;"></span>`;
+    }
+    el.innerHTML = html;
+  })();
+
+  // Shooting stars — random intervals (not a fixed cadence), only while
+  // night mode is on, the tab is visible, and motion isn't reduced.
+  function spawnShootingStar() {
+    const el = document.getElementById("hero-shooting-stars");
+    const star = document.createElement("span");
+    star.className = "hshooting-star";
+    const top = (Math.random() * 40).toFixed(1);
+    const left = (Math.random() * 65).toFixed(1);
+    const angle = (18 + Math.random() * 14).toFixed(1);
+    const dx = Math.round(320 + Math.random() * 220);
+    const dy = Math.round(140 + Math.random() * 140);
+    const dur = (0.9 + Math.random() * 0.6).toFixed(2);
+    star.style.top = top + "%";
+    star.style.left = left + "%";
+    star.style.setProperty("--angle", angle + "deg");
+    star.style.setProperty("--dx", dx + "px");
+    star.style.setProperty("--dy", dy + "px");
+    star.style.setProperty("--dur", dur + "s");
+    el.appendChild(star);
+    setTimeout(() => star.remove(), dur * 1000 + 100);
+  }
+  function scheduleShootingStar() {
+    const delay = 2800 + Math.random() * 5200;
+    setTimeout(() => {
+      if (hero.classList.contains("night") && !document.hidden && !prefersReducedMotion) spawnShootingStar();
+      scheduleShootingStar();
+    }, delay);
+  }
+  scheduleShootingStar();
+
+  // Cursor parallax — lerp-eased toward the pointer target each frame rather
+  // than snapping straight to it, so the motion reads as organic. Skipped
+  // entirely on touch devices (no hover) and when the user asked for less
+  // motion; paused while the tab is hidden.
+  if (!isTouch && !prefersReducedMotion) {
+    let targetX = 0, targetY = 0, curX = 0, curY = 0;
+    hero.addEventListener("pointermove", (e) => {
+      const r = hero.getBoundingClientRect();
+      targetX = ((e.clientX - r.left) / r.width - 0.5) * 2;
+      targetY = ((e.clientY - r.top) / r.height - 0.5) * 2;
+    });
+    const sunParallax = document.getElementById("sun-parallax");
+    const moonParallax = document.getElementById("moon-parallax");
+    const cloudsEl = document.getElementById("hero-clouds");
+    (function tick() {
+      if (!document.hidden) {
+        curX += (targetX - curX) * 0.06;
+        curY += (targetY - curY) * 0.06;
+        const sx = (curX * 16).toFixed(2);
+        const sy = (curY * 12).toFixed(2);
+        const t = `translate(${sx}px, ${sy}px)`;
+        sunParallax.style.transform = t;
+        moonParallax.style.transform = t;
+        cloudsEl.style.transform = `translate(${(curX * 6).toFixed(2)}px, ${(curY * 4).toFixed(2)}px)`;
+      }
+      requestAnimationFrame(tick);
+    })();
+  }
 
   (async () => {
     const sessionRes = await fetch("/api/session");
@@ -180,7 +331,8 @@
             { type: "others", id: "__others__", name: "Others", icon: "🛵" },
           ];
     activeIndex = 0;
-    render();
+    populateAccountSelect();
+    renderFormFields();
   })();
 </script>
 </body>
