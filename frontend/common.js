@@ -652,11 +652,50 @@ function enhanceDateInputsWithin(root) {
   root.querySelectorAll('input[type="date"]').forEach(enhanceDateInput);
 }
 
+// ---------- password show/hide toggle ----------
+// login.html already hand-builds this (its toggle also drives the mascot
+// reactions) — its field is already inside a .password-field wrapper, so
+// this skips it and only wires up every *other* password field in the app
+// (admin-elevate's modal here in common.js, settings.html, drivers.html,
+// setup.html, owner-dashboard.html's owner/branch password fields, ...).
+function enhancePasswordInput(input) {
+  if (input.dataset.cddEnhanced) return;
+  if (input.closest(".password-field")) return;
+  input.dataset.cddEnhanced = "1";
+
+  const wrap = document.createElement("div");
+  wrap.className = "password-field";
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "password-toggle";
+  btn.setAttribute("aria-label", "Show password");
+  btn.innerHTML =
+    `<svg class="icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>` +
+    `<svg class="icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+  wrap.appendChild(btn);
+
+  btn.addEventListener("click", () => {
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    btn.classList.toggle("is-visible", !showing);
+    btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+  });
+}
+
+function enhancePasswordInputsWithin(root) {
+  root.querySelectorAll('input[type="password"]').forEach(enhancePasswordInput);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   enhanceSelectsWithin(document);
   enhanceDateInputsWithin(document);
-  // Pages add <select> elements after load too (entry.html's per-shift row,
-  // delivery-entry.html's per-driver row) — catch those the same way.
+  enhancePasswordInputsWithin(document);
+  // Pages add <select>/password elements after load too (entry.html's
+  // per-shift row, delivery-entry.html's per-driver row, owner-dashboard's
+  // branch create/edit modal, ...) — catch those the same way.
   new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       mutation.addedNodes.forEach((node) => {
@@ -665,6 +704,8 @@ document.addEventListener("DOMContentLoaded", () => {
         else enhanceSelectsWithin(node);
         if (node.matches('input[type="date"]')) enhanceDateInput(node);
         else enhanceDateInputsWithin(node);
+        if (node.matches('input[type="password"]')) enhancePasswordInput(node);
+        else enhancePasswordInputsWithin(node);
       });
     }
   }).observe(document.body, { childList: true, subtree: true });
