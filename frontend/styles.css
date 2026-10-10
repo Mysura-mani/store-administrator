@@ -912,6 +912,15 @@ tbody tr:hover { background: var(--row-hover); }
 
 .password-field { position: relative; }
 .password-field input { padding-right: 42px; }
+/* Edge/IE add their own built-in "reveal password" (and "clear") icons
+   inside the input itself — invisible to our JS and not wired to the
+   mascot reactions, so it just sat there next to our real toggle button
+   doing nothing when clicked. Hide the native ones; ours is the only
+   interactive eye icon now. */
+.password-field input[type="password"]::-ms-reveal,
+.password-field input[type="password"]::-ms-clear {
+  display: none;
+}
 .password-toggle {
   position: absolute;
   top: 50%;
