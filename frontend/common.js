@@ -462,8 +462,199 @@ function enhanceSelectsWithin(root) {
   root.querySelectorAll("select").forEach(enhanceSelect);
 }
 
+// ---------- custom date picker (replaces native <input type="date"> popup) ----------
+// The native calendar popup is the same browser-level popup machinery as the
+// native <select> popup above, and hits the same GPU-compositing black-flash
+// bug — so this sidesteps it the same way: render our own calendar instead of
+// ever opening the native one. The <input> stays in the DOM, hidden, as the
+// source of truth — every existing `.value` read/write and `change` listener
+// (entry.html, delivery-entry.html) keeps working exactly as before.
+function enhanceDateInput(input) {
+  if (input.dataset.cddEnhanced) return;
+  input.dataset.cddEnhanced = "1";
+
+  const wrap = document.createElement("div");
+  wrap.className = "cdd-wrap date-wrap";
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+  input.style.display = "none";
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "cdd-trigger date-trigger";
+  trigger.setAttribute("aria-haspopup", "dialog");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.innerHTML =
+    `<span class="cdd-label"></span>` +
+    `<svg class="date-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`;
+  wrap.appendChild(trigger);
+  const label = trigger.querySelector(".cdd-label");
+
+  // Appended to <body>, not `wrap` — see the position:fixed note on
+  // .cdd-panel in styles.css for why.
+  const panel = document.createElement("div");
+  panel.className = "cdd-panel date-panel";
+  panel.setAttribute("role", "dialog");
+  panel.hidden = true;
+  document.body.appendChild(panel);
+
+  const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+
+  let viewYear, viewMonth;
+
+  // Parsed from the string directly (never through `new Date(isoString)`) to
+  // match toDateStr()'s own stated care above about avoiding UTC shifting.
+  function parseValue() {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.value);
+    return m ? { y: Number(m[1]), mo: Number(m[2]) - 1, d: Number(m[3]) } : null;
+  }
+
+  function refreshLabel() {
+    const v = parseValue();
+    label.textContent = v
+      ? `${v.d} ${MONTHS[v.mo].slice(0, 3)} ${v.y}`
+      : "";
+    trigger.disabled = input.disabled;
+  }
+
+  function positionPanel() {
+    const r = trigger.getBoundingClientRect();
+    panel.style.left = `${r.left}px`;
+    const spaceBelow = window.innerHeight - r.bottom;
+    if (spaceBelow < 360 && r.top > spaceBelow) {
+      panel.style.top = "auto";
+      panel.style.bottom = `${window.innerHeight - r.top + 4}px`;
+    } else {
+      panel.style.bottom = "auto";
+      panel.style.top = `${r.bottom + 4}px`;
+    }
+  }
+
+  function selectDate(y, mo, d) {
+    input.value = `${y}-${pad2(mo + 1)}-${pad2(d)}`;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    closePanel();
+    trigger.focus();
+  }
+
+  function renderPanel() {
+    const v = parseValue();
+    const today = new Date();
+    const firstWeekday = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7; // Mon=0
+    const total = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+    let cells = "";
+    for (let i = 0; i < firstWeekday; i++) cells += `<div class="date-cell is-muted"></div>`;
+    for (let d = 1; d <= total; d++) {
+      const isToday = viewYear === today.getFullYear() && viewMonth === today.getMonth() && d === today.getDate();
+      const isSelected = !!v && viewYear === v.y && viewMonth === v.mo && d === v.d;
+      cells += `<div class="date-cell${isToday ? " is-today" : ""}${isSelected ? " is-selected" : ""}" data-day="${d}" role="button" tabindex="0">${d}</div>`;
+    }
+
+    panel.innerHTML = `
+      <div class="date-panel-header">
+        <button type="button" class="date-nav date-nav-prev" aria-label="Previous month">&lsaquo;</button>
+        <div class="date-panel-title">${MONTHS[viewMonth]} ${viewYear}</div>
+        <button type="button" class="date-nav date-nav-next" aria-label="Next month">&rsaquo;</button>
+      </div>
+      <div class="date-weekdays">${WEEKDAYS.map((w) => `<div>${w}</div>`).join("")}</div>
+      <div class="date-grid">${cells}</div>
+      <div class="date-panel-footer"><button type="button" class="date-today-btn">Today</button></div>
+    `;
+
+    panel.querySelector(".date-nav-prev").addEventListener("click", () => {
+      viewMonth--;
+      if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+      renderPanel();
+    });
+    panel.querySelector(".date-nav-next").addEventListener("click", () => {
+      viewMonth++;
+      if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+      renderPanel();
+    });
+    panel.querySelector(".date-today-btn").addEventListener("click", () => {
+      const t = new Date();
+      selectDate(t.getFullYear(), t.getMonth(), t.getDate());
+    });
+    panel.querySelectorAll(".date-cell[data-day]").forEach((cell) => {
+      cell.addEventListener("click", () => selectDate(viewYear, viewMonth, Number(cell.dataset.day)));
+      cell.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          cell.click();
+        }
+      });
+    });
+  }
+
+  function openPanel() {
+    document.querySelectorAll(".cdd-panel").forEach((p) => {
+      if (p !== panel) p.hidden = true;
+    });
+    const v = parseValue();
+    const today = new Date();
+    viewYear = v ? v.y : today.getFullYear();
+    viewMonth = v ? v.mo : today.getMonth();
+    renderPanel();
+    positionPanel();
+    panel.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    window.addEventListener("scroll", positionPanel, true);
+    window.addEventListener("resize", positionPanel);
+    document.addEventListener("mousedown", onOutsideClick, true);
+  }
+
+  function closePanel() {
+    panel.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    window.removeEventListener("scroll", positionPanel, true);
+    window.removeEventListener("resize", positionPanel);
+    document.removeEventListener("mousedown", onOutsideClick, true);
+  }
+
+  function onOutsideClick(e) {
+    if (!wrap.contains(e.target) && !panel.contains(e.target)) closePanel();
+  }
+
+  trigger.addEventListener("click", () => {
+    if (input.disabled) return;
+    if (panel.hidden) openPanel();
+    else closePanel();
+  });
+  trigger.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closePanel();
+  });
+
+  // Mirrors enhanceSelect()'s override below — pages set `.value =` directly
+  // (loadForEdit, todayStr() resets) with no event the trigger label could
+  // otherwise observe.
+  const nativeValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  Object.defineProperty(input, "value", {
+    configurable: true,
+    get() {
+      return nativeValue.get.call(input);
+    },
+    set(v) {
+      nativeValue.set.call(input, v);
+      refreshLabel();
+    },
+  });
+  new MutationObserver(refreshLabel).observe(input, { attributes: true, attributeFilter: ["disabled"] });
+
+  refreshLabel();
+}
+
+function enhanceDateInputsWithin(root) {
+  root.querySelectorAll('input[type="date"]').forEach(enhanceDateInput);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   enhanceSelectsWithin(document);
+  enhanceDateInputsWithin(document);
   // Pages add <select> elements after load too (entry.html's per-shift row,
   // delivery-entry.html's per-driver row) — catch those the same way.
   new MutationObserver((mutations) => {
@@ -472,6 +663,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (node.nodeType !== Node.ELEMENT_NODE) return;
         if (node.matches("select")) enhanceSelect(node);
         else enhanceSelectsWithin(node);
+        if (node.matches('input[type="date"]')) enhanceDateInput(node);
+        else enhanceDateInputsWithin(node);
       });
     }
   }).observe(document.body, { childList: true, subtree: true });

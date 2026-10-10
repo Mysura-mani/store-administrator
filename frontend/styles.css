@@ -167,6 +167,40 @@ input:focus, select:focus, .cdd-trigger:focus { outline: 2px solid var(--primary
 .cdd-option:hover { background: var(--option-hover); }
 .cdd-option[aria-selected="true"] { font-weight: 600; color: var(--primary); }
 
+/* ---------- custom date picker (replaces native <input type="date"> popup) ---------- */
+/* Same GPU-compositing black-flash bug as the native <select> popup above —
+   the native calendar popup is the same browser popup machinery. See
+   common.js's enhanceDateInput(), which builds this around every
+   <input type="date"> automatically. */
+.date-wrap { position: relative; }
+.date-trigger .date-icon { width: 16px; height: 16px; flex-shrink: 0; color: var(--muted); }
+.date-panel { width: 280px; padding: 10px; }
+.date-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.date-panel-title { font-weight: 600; font-size: 14px; }
+.date-nav {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+}
+.date-nav:hover { background: var(--option-hover); }
+.date-weekdays, .date-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.date-weekdays { font-size: 11px; color: var(--muted); text-align: center; margin-bottom: 4px; }
+.date-cell { display: flex; align-items: center; justify-content: center; height: 32px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.date-cell:hover { background: var(--option-hover); }
+.date-cell.is-muted { visibility: hidden; cursor: default; }
+.date-cell.is-today { font-weight: 600; color: var(--primary); }
+.date-cell.is-selected { background: var(--primary); color: #fff; font-weight: 600; }
+.date-panel-footer { margin-top: 8px; text-align: center; border-top: 1px solid var(--border); padding-top: 8px; }
+.date-today-btn { background: none; border: none; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.date-today-btn:hover { text-decoration: underline; }
+
 button {
   cursor: pointer;
   font-size: 14px;
