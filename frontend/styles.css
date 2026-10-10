@@ -7,7 +7,11 @@
      in the first place — that only ever affected the native popup itself. */
   color-scheme: light;
   --bg: #f5f6f8;
-  --card: #ffffff;
+  /* Translucent (liquid-glass surfaces) rather than solid — every panel,
+     button and input below reads this same variable, so every one of them
+     automatically frosts over the glow gradient on body (see .card and the
+     shared backdrop-filter rule after the font-family block). */
+  --card: rgba(255, 255, 255, 0.62);
   --border: #e1e4e9;
   --text: #1c2230;
   --muted: #6b7280;
@@ -29,12 +33,18 @@
   --login-bg: #e9edf5;
   --login-illustration-bg: #eef1f6;
   --login-card-top-bg: #eef4ff;
+  /* Soft brand-blue glow blobs behind every page — see body's background
+     below. Nothing to blur without them; a frosted panel over a flat
+     single-tone background just looks like a faded solid panel. */
+  --glow-1: rgba(37, 99, 235, 0.16);
+  --glow-2: rgba(37, 99, 235, 0.10);
+  --glow-3: rgba(37, 99, 235, 0.08);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #14161c;
-  --card: #1c1f27;
+  --card: rgba(30, 33, 43, 0.58);
   --border: #2c303c;
   --text: #e5e7eb;
   --muted: #9aa3b2;
@@ -53,6 +63,9 @@
   --login-bg: #0b0d12;
   --login-illustration-bg: #14161c;
   --login-card-top-bg: #1b2436;
+  --glow-1: rgba(59, 130, 246, 0.22);
+  --glow-2: rgba(59, 130, 246, 0.14);
+  --glow-3: rgba(59, 130, 246, 0.10);
 }
 
 * { box-sizing: border-box; }
@@ -70,8 +83,18 @@ body {
      buttons, sidebar nav, ...) automatically renders in — no need to touch
      those separately. */
   font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", "Marker Felt", cursive, sans-serif;
-  background: var(--bg);
   color: var(--text);
+  background-color: var(--bg);
+  /* What the frosted/glass panels throughout the app actually blur — fixed
+     so it reads as one backdrop behind the page rather than scrolling with
+     content. */
+  background-image:
+    radial-gradient(1100px 650px at 8% -10%, var(--glow-1), transparent 60%),
+    radial-gradient(900px 600px at 100% 8%, var(--glow-2), transparent 55%),
+    radial-gradient(1000px 700px at 50% 115%, var(--glow-3), transparent 60%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  min-height: 100vh;
 }
 
 a { color: var(--primary); }
@@ -114,6 +137,21 @@ input, select, textarea, button, .cdd-trigger {
      regardless of what it's set to. */
   font-family: inherit;
 }
+
+/* ---------- liquid glass ---------- */
+/* Every one of these already paints `background: var(--card)` (now
+   translucent, see :root). Without backdrop-filter that just looks like a
+   faded solid panel — this is what actually frosts body's glow gradient
+   behind it into "glass". One shared rule, same reasoning as the
+   font-family block above: easier to keep every surface consistent than
+   to repeat it 15 times. */
+.card, input, select, .cdd-trigger, .cdd-panel, .btn-secondary, .btn-danger,
+.tabs button.active, .modal-card, .preset-row button, .mode-card, .login-card,
+.btn-google, .owner-sidebar, .stat-card, .store-card, .analytics-panel {
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+}
+
 
 input, select, .cdd-trigger {
   width: 100%;
