@@ -6,14 +6,52 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Page not found - Tips Tracker</title>
 <link rel="stylesheet" href="/styles.css" />
+<style>
+  .nf-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .nf-stage { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 480px; }
+  .nf-digits { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; line-height: 1; }
+  .nf-digit {
+    font-size: clamp(90px, 22vw, 160px);
+    font-weight: 700;
+    color: var(--primary);
+    -webkit-text-stroke: 3px var(--text);
+    text-shadow: 6px 6px 0 rgba(37, 99, 235, 0.25);
+  }
+  .nf-digit:nth-child(1) { transform: rotate(-7deg); }
+  .nf-digit:nth-child(2) { transform: rotate(4deg) translateY(-4px); }
+  .nf-digit:nth-child(3) { transform: rotate(-5deg); }
+  .nf-bird { position: absolute; top: -34px; right: -8px; width: 72px; height: 66px; transform: rotate(12deg); filter: drop-shadow(0 4px 6px rgba(16, 24, 40, 0.18)); }
+  .nf-title { font-size: 22px; margin: 18px 0 4px; }
+  .nf-subtitle { color: var(--muted); margin: 0 0 22px; }
+  .nf-btn { text-decoration: none; padding: 11px 28px; }
+  @media (max-width: 480px) {
+    .nf-bird { width: 54px; height: 50px; top: -24px; right: -4px; }
+  }
+</style>
 </head>
 <body>
-<div class="center-screen">
-  <div class="card auth-card" style="text-align:center">
-    <div style="font-size:44px; margin-bottom:8px">404</div>
-    <h1 style="font-size:20px">Page not found</h1>
-    <p class="subtitle">That page doesn't exist, or you followed an outdated link.</p>
-    <a class="btn-primary btn-full" href="/login.html" style="display:block; text-align:center; text-decoration:none; box-sizing:border-box;">Go to login</a>
+<div class="nf-screen">
+  <div class="nf-stage">
+    <div class="nf-digits">
+      <span class="nf-digit">4</span>
+      <span class="nf-digit">0</span>
+      <span class="nf-digit">4</span>
+      <svg class="nf-bird" viewBox="0 0 120 110" aria-hidden="true">
+        <g class="bird-tail"><path d="M20,74 L3,60 L3,86 Z" fill="#b97e28"/></g>
+        <g class="bird-wing bird-wing-left"><path d="M46,56 C19,57 12,80 29,95 C40,83 46,68 46,56 Z" fill="#e0a23a"/></g>
+        <g class="bird-wing bird-wing-right"><path d="M74,56 C101,57 108,80 91,95 C80,83 74,68 74,56 Z" fill="#e0a23a"/></g>
+        <g class="bird-body"><ellipse cx="60" cy="70" rx="35" ry="31" fill="#f2b84a"/></g>
+        <g class="bird-head">
+          <ellipse cx="60" cy="38" rx="28" ry="26" fill="#f2b84a"/>
+          <path d="M59,44 L75,50 L59,57 Z" fill="#e2672f"/>
+          <circle cx="45" cy="34" r="11.5" fill="#fff"/><circle cx="45" cy="34" r="5.3" fill="#1a1611"/>
+          <circle cx="74" cy="34" r="11.5" fill="#fff"/><circle cx="74" cy="34" r="5.3" fill="#1a1611"/>
+        </g>
+      </svg>
+    </div>
+    <h1 class="nf-title">Looks like this page flew off somewhere</h1>
+    <p class="nf-subtitle">That page doesn't exist, or you followed an outdated link.</p>
+    <a class="btn-primary nf-btn" href="/login.html">Go to login</a>
   </div>
 </div>
 </body>
