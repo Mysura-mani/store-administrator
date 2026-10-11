@@ -467,7 +467,9 @@ tbody tr:hover { background: var(--row-hover); }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--muted);
   padding: 5px 0;
 }
 .driver-pay-row.driver-actual-pay-row {
@@ -475,6 +477,8 @@ tbody tr:hover { background: var(--row-hover); }
   padding-top: 12px;
   border-top: 1px dashed var(--border);
   font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
 }
 .tips-block {
   margin-top: 16px;

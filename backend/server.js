@@ -258,22 +258,6 @@ function requireAdminForPastEdit(getEntryFn) {
   });
 }
 
-// Delivery payouts: nobody, regardless of role, can edit anything but
-// today's entry — there's no admin escape hatch here the way there is for
-// the Tip Sheet above. A correction to an older day has to go through the
-// owner/admin adjusting pay directly rather than rewriting history.
-function requireTodayEntry(getEntryFn) {
-  return ah(async (req, res, next) => {
-    const existing = await getEntryFn(req.session.branchId, req.params.id);
-    if (!existing) return res.status(404).json({ error: "Entry not found." });
-    const today = store.formatDateStr(new Date());
-    if (existing.date !== today) {
-      return res.status(403).json({ error: "Only today's entry can be edited." });
-    }
-    next();
-  });
-}
-
 // ---------- branches & auth ----------
 
 app.get("/api/branches", ah(async (req, res) => {
@@ -755,12 +739,13 @@ app.post("/api/delivery-entries", requireAuth, ah(async (req, res) => {
   }
 }));
 
-// Any branch staff can edit a delivery entry (no admin requirement, unlike
-// the Tip Sheet's entries) but only for today — see requireTodayEntry above.
+// Same rule as the Tip Sheet's entries: staff can keep completing today's
+// entry freely, but editing a past day requires admin — see
+// requireAdminForPastEdit above.
 app.put(
   "/api/delivery-entries/:id",
   requireAuth,
-  requireTodayEntry(store.getDeliveryEntry),
+  requireAdminForPastEdit(store.getDeliveryEntry),
   ah(async (req, res) => {
     try {
       const updated = await store.updateDeliveryEntry(req.session.branchId, req.params.id, req.body || {});
@@ -778,7 +763,7 @@ app.put(
 app.put(
   "/api/delivery-entries/:id/driver/:driverId",
   requireAuth,
-  requireTodayEntry(store.getDeliveryEntry),
+  requireAdminForPastEdit(store.getDeliveryEntry),
   ah(async (req, res) => {
     try {
       const updated = await store.updateDeliveryEntryDriver(req.session.branchId, req.params.id, req.params.driverId, req.body || {});

@@ -104,6 +104,10 @@
       </div>
       <div class="driver-pay-breakdown">
         <div class="driver-pay-row">
+          <span>Hourly pay</span>
+          <span class="driver-hourly-pay">&mdash;</span>
+        </div>
+        <div class="driver-pay-row">
           <span>Orders pay</span>
           <span class="driver-orders-pay">&mdash;</span>
         </div>
@@ -173,11 +177,13 @@
     document.querySelectorAll(".driver-card").forEach((card) => {
       const hours = Number(card.querySelector(".d-hours").value) || 0;
       const zoneCounts = Array.from(card.querySelectorAll(".d-zone")).map((input) => Number(input.value) || 0);
+      const hourlyEl = card.querySelector(".driver-hourly-pay");
       const ordersEl = card.querySelector(".driver-orders-pay");
       const payEl = card.querySelector(".driver-pay");
       const totalEl = card.querySelector(".driver-total");
       payEl.classList.remove("pay-floor", "pay-above");
       if (!rates || hours <= 0) {
+        hourlyEl.textContent = "—";
         ordersEl.textContent = "—";
         payEl.textContent = "—";
         totalEl.textContent = "—";
@@ -193,6 +199,7 @@
       // separately from "Actual pay" (Pay + Tips) so it's clear tips are
       // added on top rather than folded invisibly into one number.
       const payBeforeTips = topUpApplied ? minWageFloor : rawTotal;
+      hourlyEl.textContent = formatMoney(basePay);
       ordersEl.textContent = formatMoney(deliveryPay);
       payEl.textContent = formatMoney(payBeforeTips);
       totalEl.textContent = formatMoney(payBeforeTips + tips);
@@ -303,16 +310,14 @@
   // Reached only via Delivery History's per-driver "Edit" link. Shows just
   // that one driver's card, already unlocked, with the driver fixed (this is
   // a correction, not a reassignment) and no Edit/Reset toggle — Submit is
-  // the only option. The backend rejects this outright if the entry isn't
-  // today's (see requireTodayEntry), so that's checked here too rather than
-  // showing a form that can only ever fail to save.
+  // the only option. Same permission rule as the rest of this form: staff
+  // can freely correct today's entry, admin is required for a past day
+  // (see requireAdminForPastEdit on the backend) — surfaced as a normal
+  // save error here rather than duplicated as a pre-check.
   async function loadForSingleDriverEdit(entryId, driverId) {
     const entry = await api(`/api/delivery-entries/${entryId}`);
     const driverData = entry.drivers.find((d) => d.driverId === driverId);
     if (!driverData) throw new Error("That driver's entry for this day was not found.");
-    if (entry.date !== todayStr()) {
-      throw new Error("Only today's entry can be edited.");
-    }
     singleDriverEdit = { entryId, driverId };
     const driverName = (drivers.find((d) => d.id === driverId) || {}).name || "";
     document.getElementById("form-title").textContent = driverName
