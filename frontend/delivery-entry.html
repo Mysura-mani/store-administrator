@@ -59,6 +59,14 @@
   // swaps the whole-day multi-driver form for a single locked-to-one-driver
   // correction with just a Submit button (see loadForSingleDriverEdit).
   let singleDriverEdit = null;
+  // True while logging a brand-new (or still-partial) day: one driver card
+  // at a time, each with its own Submit button, the next one only appearing
+  // once the previous driver is actually saved (see startSequentialEntry).
+  // False for a complete day being corrected, which still shows every
+  // driver at once behind the shared Edit/Submit/Reset bar, same as always
+  // (see loadForEdit) — that distinction is what the driver-count input's
+  // handler and the Reset button below key off.
+  let sequentialMode = false;
 
   function driverOptionsHtml(selectedId) {
     return drivers.map((d) => `<option value="${escapeHtml(d.id)}" ${d.id === selectedId ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("");
@@ -77,7 +85,7 @@
       .join("");
   }
 
-  function createDriverCard(index, data = {}) {
+  function createDriverCard(index, data = {}, options = {}) {
     const { driverId = "", hours = "", zoneCounts = [0, 0, 0, 0], cashOrders = [], tips = "", note = "" } = data;
     const card = document.createElement("div");
     card.className = "driver-card";
@@ -134,6 +142,14 @@
         <div class="cash-order-values"></div>
         <p class="hint">Cash to return: <strong class="cash-return-amount">&euro;0.00</strong></p>
       </div>
+      ${
+        options.sequential
+          ? `<div class="driver-card-actions">
+               <button type="button" class="btn-primary driver-card-submit">Submit Driver ${index + 1}</button>
+               <span class="driver-card-status"></span>
+             </div>`
+          : ""
+      }
     `;
 
     card.querySelectorAll(".d-hours, .d-zone, .d-tips").forEach((input) => input.addEventListener("input", recalcAllTotals));
@@ -141,6 +157,8 @@
     cashCountInput.addEventListener("input", () => {
       renderCashOrderInputs(card, Math.max(0, Math.floor(Number(cashCountInput.value) || 0)));
     });
+    const sequentialSubmit = card.querySelector(".driver-card-submit");
+    if (sequentialSubmit) sequentialSubmit.addEventListener("click", () => saveSequentialDriver(card, index));
 
     renderCashOrderInputs(card, cashOrders.length, cashOrders);
     return card;
@@ -218,15 +236,28 @@
     recalcAllTotals();
   }
 
-  function readDriverCards() {
-    return Array.from(document.querySelectorAll(".driver-card")).map((card) => ({
+  function readSingleCard(card) {
+    return {
       driverId: card.querySelector(".d-driver").value,
       hours: Number(card.querySelector(".d-hours").value),
       zoneCounts: Array.from(card.querySelectorAll(".d-zone")).map((input) => Number(input.value) || 0),
       cashOrders: Array.from(card.querySelectorAll(".cash-order-value-input")).map((input) => Number(input.value) || 0),
       tips: Number(card.querySelector(".d-tips").value) || 0,
       note: card.querySelector(".d-note").value || "",
-    }));
+    };
+  }
+
+  function readDriverCards() {
+    return Array.from(document.querySelectorAll(".driver-card")).map(readSingleCard);
+  }
+
+  // Disables a sequential card's inputs once it's been saved, and drops its
+  // own Submit button — it's done, the next card (if any) takes over.
+  function lockCard(card) {
+    card.classList.add("is-locked");
+    card.querySelectorAll("input, select").forEach((el) => (el.disabled = true));
+    const actions = card.querySelector(".driver-card-actions");
+    if (actions) actions.remove();
   }
 
   function setStatus(el, message, isError) {
@@ -281,6 +312,76 @@
     }
   }
 
+  // Logging a brand-new day (or resuming one that's only partially saved):
+  // shows every already-submitted driver as a locked card, then exactly one
+  // active card for the next driver — never the whole set unlocked at once.
+  // `entry` is null for a day with nothing saved yet.
+  function startSequentialEntry(entry) {
+    sequentialMode = true;
+    document.getElementById("entry-id").value = entry ? entry.id : "";
+    document.getElementById("form-title").textContent = "Log a day's deliveries";
+    document.getElementById("driver-count").value = entry ? entry.driverCount || entry.drivers.length || 1 : 1;
+    document.getElementById("driver-count").disabled = false;
+    // Once anything is saved for this day, the date can't change out from
+    // under the drivers already recorded against it — only Reset (a fresh
+    // day) clears this.
+    document.getElementById("date").disabled = !!entry;
+    document.getElementById("cancel-edit").style.display = entry ? "inline-block" : "none";
+    document.getElementById("submit-btn").style.display = "none";
+    document.getElementById("submit-btn").disabled = true;
+    document.getElementById("edit-btn").style.display = "none";
+
+    const container = document.getElementById("driver-cards");
+    container.innerHTML = "";
+    const submitted = entry ? entry.drivers : [];
+    submitted.forEach((d, i) => {
+      const card = createDriverCard(i, d);
+      container.appendChild(card);
+      lockCard(card);
+    });
+    container.appendChild(createDriverCard(submitted.length, {}, { sequential: true }));
+    recalcAllTotals();
+  }
+
+  // Saves just this one card (building on whatever's already locked above
+  // it), then either reveals the next driver's card or — once the day's
+  // full driver count is reached — hands off to the familiar "everything
+  // shown at once, Edit to correct" view via loadForEdit.
+  async function saveSequentialDriver(card, index) {
+    const statusEl = card.querySelector(".driver-card-status");
+    statusEl.textContent = "";
+    const driverCount = Number(document.getElementById("driver-count").value) || index + 1;
+    const payload = {
+      date: document.getElementById("date").value,
+      driverCount,
+      drivers: readDriverCards(),
+    };
+    const id = document.getElementById("entry-id").value;
+    try {
+      let resultId = id;
+      if (id) {
+        await api(`/api/delivery-entries/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+      } else {
+        const result = await api("/api/delivery-entries", { method: "POST", body: JSON.stringify(payload) });
+        resultId = result.id;
+        document.getElementById("entry-id").value = resultId;
+      }
+      document.getElementById("date").disabled = true;
+      document.getElementById("cancel-edit").style.display = "inline-block";
+      setStatus(document.getElementById("global-status"), "Driver saved.", false);
+      const nextIndex = index + 1;
+      if (nextIndex < driverCount) {
+        lockCard(card);
+        document.getElementById("driver-cards").appendChild(createDriverCard(nextIndex, {}, { sequential: true }));
+        recalcAllTotals();
+      } else {
+        await loadForEdit(resultId);
+      }
+    } catch (err) {
+      setStatus(statusEl, err.message, true);
+    }
+  }
+
   async function loadDrivers() {
     drivers = await api("/api/drivers");
     rates = await api("/api/rates");
@@ -293,6 +394,7 @@
 
   async function loadForEdit(id) {
     const entry = await api(`/api/delivery-entries/${id}`);
+    sequentialMode = false;
     document.getElementById("form-title").textContent = "Edit delivery entry";
     document.getElementById("entry-id").value = entry.id;
     document.getElementById("date").value = entry.date;
@@ -304,6 +406,7 @@
     }
     recalcAllTotals();
     document.getElementById("cancel-edit").style.display = "inline-block";
+    document.getElementById("submit-btn").disabled = false;
     setFormLocked(true);
   }
 
@@ -318,6 +421,7 @@
     const entry = await api(`/api/delivery-entries/${entryId}`);
     const driverData = entry.drivers.find((d) => d.driverId === driverId);
     if (!driverData) throw new Error("That driver's entry for this day was not found.");
+    sequentialMode = false;
     singleDriverEdit = { entryId, driverId };
     const driverName = (drivers.find((d) => d.id === driverId) || {}).name || "";
     document.getElementById("form-title").textContent = driverName
@@ -346,22 +450,21 @@
   }
 
   // Looks up whether the selected date already has a (possibly partial)
-  // entry saved and loads it, so a driver saved earlier in the day is still
-  // there when someone comes back to add the next driver later.
+  // entry saved. A day that already has every driver it's supposed to
+  // (driverCount reached) goes to the familiar all-at-once edit view; a
+  // brand-new or still-partial day goes to the one-driver-at-a-time flow,
+  // resuming right after whichever drivers are already saved.
   async function loadForDate(date) {
     if (!date || drivers.length === 0) return;
     try {
       const existing = await api(`/api/delivery-entries?from=${date}&to=${date}`);
       if (existing.length > 0) {
-        await loadForEdit(existing[0].id);
+        const entry = existing[0];
+        const count = entry.driverCount || entry.drivers.length || 1;
+        if (entry.drivers.length >= count) await loadForEdit(entry.id);
+        else startSequentialEntry(entry);
       } else {
-        document.getElementById("entry-id").value = "";
-        document.getElementById("form-title").textContent = "Log a day's deliveries";
-        document.getElementById("cancel-edit").style.display = "none";
-        document.getElementById("driver-count").value = 1;
-        document.getElementById("driver-cards").innerHTML = "";
-        syncDriverCount(1);
-        setFormLocked(false);
+        startSequentialEntry(null);
       }
     } catch (err) {
       /* leave the form as-is on a transient error */
@@ -396,6 +499,12 @@
   })();
 
   document.getElementById("driver-count").addEventListener("input", (e) => {
+    // Sequential mode never shows more than one unlocked card at a time —
+    // this just raises/lowers the target the per-card Submit buttons count
+    // toward, read fresh each time in saveSequentialDriver(). Only bulk
+    // edit mode (every driver already shown and unlocked together) adds or
+    // removes cards immediately.
+    if (sequentialMode) return;
     syncDriverCount(Math.max(0, Math.floor(Number(e.target.value) || 0)));
   });
 
@@ -407,14 +516,8 @@
   // clears the form directly instead, without asking "does today already
   // have an entry" at all.
   document.getElementById("cancel-edit").addEventListener("click", () => {
-    document.getElementById("entry-id").value = "";
-    document.getElementById("form-title").textContent = "Log a day's deliveries";
     document.getElementById("date").value = todayStr();
-    document.getElementById("driver-count").value = 1;
-    document.getElementById("driver-cards").innerHTML = "";
-    document.getElementById("cancel-edit").style.display = "none";
-    setFormLocked(false);
-    syncDriverCount(1);
+    startSequentialEntry(null);
     setStatus(document.getElementById("global-status"), "", false);
   });
 

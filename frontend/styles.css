@@ -448,6 +448,14 @@ tbody tr:hover { background: var(--row-hover); }
 }
 .driver-card-header { font-weight: 700; margin-bottom: 12px; color: var(--text); }
 .driver-card .zone-row > div { min-width: 110px; }
+/* Sequential one-driver-at-a-time entry (see startSequentialEntry in
+   delivery-entry.html) — a saved card dims slightly and loses its own
+   Submit button once locked, so it reads as "done" next to the one active
+   card below it. */
+.driver-card.is-locked { opacity: 0.65; }
+.driver-card-actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+.driver-card-status { font-size: 13px; }
+.driver-card-status:not(:empty) { color: var(--danger); }
 .driver-total-row {
   display: flex;
   align-items: center;
