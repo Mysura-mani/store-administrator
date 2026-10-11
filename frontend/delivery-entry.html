@@ -501,10 +501,16 @@
   document.getElementById("driver-count").addEventListener("input", (e) => {
     // Sequential mode never shows more than one unlocked card at a time —
     // this just raises/lowers the target the per-card Submit buttons count
-    // toward, read fresh each time in saveSequentialDriver(). Only bulk
-    // edit mode (every driver already shown and unlocked together) adds or
-    // removes cards immediately.
-    if (sequentialMode) return;
+    // toward, read fresh each time in saveSequentialDriver(). It still has
+    // to recalc the pay breakdown though: whether the solo minimum-wage
+    // top-up applies depends on this value too, so without this the shown
+    // Pay silently went stale until something else (retyping Hours)
+    // happened to trigger a recalc. Only bulk edit mode (every driver
+    // already shown and unlocked together) adds or removes cards here.
+    if (sequentialMode) {
+      recalcAllTotals();
+      return;
+    }
     syncDriverCount(Math.max(0, Math.floor(Number(e.target.value) || 0)));
   });
 
