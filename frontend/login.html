@@ -14,10 +14,26 @@
 <div id="boot-loader"></div>
 <script src="/coffee-loader.js"></script>
 <script>
+  // Always plays the full brew animation (not tied to how fast the real
+  // bootstrap below actually resolves, which is usually near-instant and
+  // would otherwise make the splash jump straight to 100%) — the page only
+  // reveals once BOTH the animation has finished AND the real data is
+  // ready, whichever comes second. If CoffeeLoader didn't load for any
+  // reason, there's nothing to wait on, so that half just starts "done".
+  var bootAnimDone = false;
+  var bootDataReady = false;
+  var bootRedirectRole = null;
   var bootLoader = window.CoffeeLoader
-    ? window.CoffeeLoader.mount(document.getElementById("boot-loader"), { fullscreen: true })
+    ? window.CoffeeLoader.mount(document.getElementById("boot-loader"), {
+        fullscreen: true,
+        onComplete: function () {
+          bootAnimDone = true;
+          tryFinishBoot();
+        },
+      })
     : null;
-  if (bootLoader) bootLoader.setProgress(0.12);
+  if (bootLoader) bootLoader.simulate(2400);
+  else bootAnimDone = true;
 </script>
 
 <div class="hero" id="hero">
@@ -316,10 +332,7 @@
     })();
   }
 
-  // Fades the boot splash out and removes it — called once the form below
-  // is actually ready to show, and also as a safety net if the bootstrap
-  // below throws (a network error shouldn't leave the user stuck staring
-  // at an opaque splash forever).
+  // Fades the boot splash out and removes it.
   function hideBootLoader() {
     if (!bootLoader) return;
     const el = document.getElementById("boot-loader");
@@ -328,16 +341,23 @@
     setTimeout(() => bootLoader.destroy(), 450);
   }
 
+  // Only actually reveals the page once both halves are ready — see the
+  // comment above bootAnimDone. Runs again every time either flag flips.
+  function tryFinishBoot() {
+    if (!bootAnimDone || !bootDataReady) return;
+    if (bootRedirectRole) redirectForRole(bootRedirectRole);
+    else hideBootLoader();
+  }
+
   (async () => {
-    if (bootLoader) bootLoader.setProgress(0.3);
     const sessionRes = await fetch("/api/session");
     if (sessionRes.ok) {
       const session = await sessionRes.json();
-      if (bootLoader) bootLoader.complete();
-      redirectForRole(session.role);
+      bootRedirectRole = session.role;
+      bootDataReady = true;
+      tryFinishBoot();
       return;
     }
-    if (bootLoader) bootLoader.setProgress(0.55);
     const params = new URLSearchParams(window.location.search);
     const errorCode = params.get("error");
     if (errorCode && GOOGLE_ERRORS[errorCode]) {
@@ -346,7 +366,6 @@
       document.getElementById("error").textContent = "You were logged out after 5 minutes of inactivity.";
     }
     const [branchList, googleStatus] = await Promise.all([api("/api/branches"), api("/api/auth/google/available")]);
-    if (bootLoader) bootLoader.setProgress(0.9);
     googleAvailable = googleStatus.available;
     // No branches yet — nothing to actually choose between, so go straight
     // to a plain owner login (same bootstrap behavior as before).
@@ -361,9 +380,12 @@
     activeIndex = 0;
     populateAccountSelect();
     renderFormFields();
-    if (bootLoader) bootLoader.complete();
-    setTimeout(hideBootLoader, 550);
-  })().catch(hideBootLoader);
+    bootDataReady = true;
+    tryFinishBoot();
+  })().catch(() => {
+    bootDataReady = true;
+    tryFinishBoot();
+  });
 </script>
 </body>
 </html>
