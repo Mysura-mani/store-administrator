@@ -1176,3 +1176,79 @@ tbody tr:hover { background: var(--row-hover); }
   .owner-nav { flex-direction: row; flex-wrap: wrap; margin-bottom: 0; }
   .owner-main { padding: 24px 16px; }
 }
+
+/* ---------- coffee-machine loading animation ---------- */
+/* See coffee-loader.js for the mount()/setProgress()/simulate() API. Warm
+   cream/espresso palette deliberately kept separate from --primary/--card
+   (own fixed colors, not theme tokens) — this is a standalone illustration,
+   not a themed UI surface, and should look the same in light or dark mode. */
+.coffee-loader { display: flex; flex-direction: column; align-items: center; width: 360px; max-width: 100%; margin: 0 auto; animation: cl-enter 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.coffee-loader-svg { width: 100%; height: auto; }
+@keyframes cl-enter { from { opacity: 0; transform: scale(0.94) translateY(6px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+/* Full-page splash variant (CoffeeLoader.mount(el, { fullscreen: true })) —
+   the cafe scene fills the entire viewport edge to edge (preserveAspectRatio
+   "slice" on the svg crops like background-size:cover instead of
+   letterboxing), with the machine staying large and centered regardless of
+   viewport shape. The status text lives inside the SVG itself (pinned right
+   under the cup, see coffee-loader.js) rather than as a separately
+   positioned HTML overlay, so it tracks the cup's actual on-screen position
+   instead of drifting from it as the crop changes per viewport. */
+.coffee-loader-fullscreen { position: fixed; inset: 0; width: 100vw; height: 100vh; align-items: stretch; justify-content: flex-end; z-index: 2000; transition: opacity 0.4s ease; }
+.coffee-loader-fullscreen .coffee-loader-svg { width: 100%; height: 100%; display: block; }
+.coffee-loader-fullscreen.coffee-loader-leaving { opacity: 0; pointer-events: none; }
+
+.coffee-loader-light { animation: cl-light-pulse 1s ease-in-out infinite; }
+.coffee-loader.is-done .coffee-loader-light { animation: none; fill: #8a9099; }
+.coffee-loader-badge { font-family: inherit; font-weight: 700; font-size: 20px; fill: #1c2230; letter-spacing: 0.02em; }
+@keyframes cl-light-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.coffee-loader-glow { animation: cl-glow-pulse 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes cl-glow-pulse { 0%, 100% { opacity: 0.6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.08); } }
+
+.coffee-loader-sheen { animation: cl-sheen-sweep 3.2s ease-in-out infinite; }
+@keyframes cl-sheen-sweep { 0% { transform: translateX(0) skewX(-18deg); } 55%, 100% { transform: translateX(290px) skewX(-18deg); } }
+
+.coffee-loader-pour { transition: opacity 0.3s ease; animation: cl-pour-flow 0.5s linear infinite; }
+@keyframes cl-pour-flow { from { transform: translateY(-6px); } to { transform: translateY(6px); } }
+
+.coffee-loader-liquid { transition: y 0.15s linear, height 0.15s linear; }
+
+.cl-bubble { opacity: 0; animation: cl-bubble-rise 2.2s ease-in infinite; }
+.cl-bubble-1 { animation-delay: 0s; }
+.cl-bubble-2 { animation-delay: 0.7s; }
+.cl-bubble-3 { animation-delay: 1.4s; }
+@keyframes cl-bubble-rise {
+  0% { opacity: 0; transform: translate(0, 0); }
+  15% { opacity: 0.8; }
+  50% { transform: translate(2px, -23px); }
+  85% { opacity: 0.5; }
+  100% { opacity: 0; transform: translate(-1px, -46px); }
+}
+
+.cl-steam { opacity: 0; animation: cl-steam-rise 2.6s ease-in-out infinite; }
+.cl-steam-2 { animation-delay: 0.6s; }
+.cl-steam-3 { animation-delay: 1.2s; }
+.cl-steam-4 { animation-delay: 1.8s; }
+@keyframes cl-steam-rise {
+  0% { opacity: 0; transform: translateY(6px) scale(0.9); }
+  35% { opacity: 0.6; }
+  100% { opacity: 0; transform: translateY(-16px) scale(1.08); }
+}
+
+.coffee-loader-check { transition: opacity 0.4s ease, transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); transform: scale(0.6); transform-box: fill-box; transform-origin: center; }
+.coffee-loader.is-done .coffee-loader-check { transform: scale(1); }
+
+/* Fixed colors (not var(--text)/var(--muted)) — this sits on its own
+   always-light cafe backdrop regardless of the site's light/dark theme, so
+   it must stay readable even when the page around it is in dark mode. An SVG
+   <text>, not HTML, so it's pinned to the cup's own coordinates (see
+   coffee-loader.js) instead of position:absolute drifting from it. */
+.coffee-loader-status { font-family: inherit; font-size: 15px; }
+.coffee-loader-label { font-weight: 700; fill: #1c2230; }
+.coffee-loader-pct { font-weight: 600; fill: #6b7280; }
+.coffee-loader.is-done .coffee-loader-label, .coffee-loader.is-done .coffee-loader-pct { fill: #16a34a; }
+
+@media (prefers-reduced-motion: reduce) {
+  .coffee-loader, .coffee-loader-light, .coffee-loader-glow, .coffee-loader-sheen, .coffee-loader-pour, .cl-bubble, .cl-steam { animation: none; }
+}

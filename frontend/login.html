@@ -8,6 +8,18 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+<!-- Shown immediately (before the hero below has even been parsed) so a
+     page load/refresh never shows a blank flash while everything else
+     loads — see the dismissal logic at the bottom of this file. -->
+<div id="boot-loader"></div>
+<script src="/coffee-loader.js"></script>
+<script>
+  var bootLoader = window.CoffeeLoader
+    ? window.CoffeeLoader.mount(document.getElementById("boot-loader"), { fullscreen: true })
+    : null;
+  if (bootLoader) bootLoader.setProgress(0.12);
+</script>
+
 <div class="hero" id="hero">
   <div class="hero-sky"></div>
   <div class="hero-stars" id="hero-stars"></div>
@@ -304,13 +316,28 @@
     })();
   }
 
+  // Fades the boot splash out and removes it — called once the form below
+  // is actually ready to show, and also as a safety net if the bootstrap
+  // below throws (a network error shouldn't leave the user stuck staring
+  // at an opaque splash forever).
+  function hideBootLoader() {
+    if (!bootLoader) return;
+    const el = document.getElementById("boot-loader");
+    if (!el) return;
+    el.classList.add("coffee-loader-leaving");
+    setTimeout(() => bootLoader.destroy(), 450);
+  }
+
   (async () => {
+    if (bootLoader) bootLoader.setProgress(0.3);
     const sessionRes = await fetch("/api/session");
     if (sessionRes.ok) {
       const session = await sessionRes.json();
+      if (bootLoader) bootLoader.complete();
       redirectForRole(session.role);
       return;
     }
+    if (bootLoader) bootLoader.setProgress(0.55);
     const params = new URLSearchParams(window.location.search);
     const errorCode = params.get("error");
     if (errorCode && GOOGLE_ERRORS[errorCode]) {
@@ -319,6 +346,7 @@
       document.getElementById("error").textContent = "You were logged out after 5 minutes of inactivity.";
     }
     const [branchList, googleStatus] = await Promise.all([api("/api/branches"), api("/api/auth/google/available")]);
+    if (bootLoader) bootLoader.setProgress(0.9);
     googleAvailable = googleStatus.available;
     // No branches yet — nothing to actually choose between, so go straight
     // to a plain owner login (same bootstrap behavior as before).
@@ -333,7 +361,9 @@
     activeIndex = 0;
     populateAccountSelect();
     renderFormFields();
-  })();
+    if (bootLoader) bootLoader.complete();
+    setTimeout(hideBootLoader, 550);
+  })().catch(hideBootLoader);
 </script>
 </body>
 </html>
