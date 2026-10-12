@@ -12,12 +12,14 @@
 <div class="owner-shell">
   <div class="owner-sidebar">
     <div class="brand">
-      Administration<span>Tracker</span>
+      <span class="brand-mark">HX46</span>
+      <span class="brand-sub">Administration<span>Tracker</span></span>
     </div>
     <div class="owner-nav">
       <a href="#" class="nav-link active" data-view="stores"><span class="nav-icon">&#127970;</span> Stores</a>
       <a href="#" class="nav-link" data-view="settings"><span class="nav-icon">&#9881;&#65039;</span> Settings</a>
       <button type="button" id="theme-toggle-btn"></button>
+      <button type="button" id="help-btn"><span class="nav-icon">&#10067;</span> Help?</button>
       <button type="button" id="logout-btn"><span class="nav-icon">&#8618;</span> Log out</button>
     </div>
   </div>
@@ -215,6 +217,8 @@
       }
     });
   });
+
+  document.getElementById("help-btn").addEventListener("click", openHelpPrompt);
 
   document.getElementById("logout-btn").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST" });

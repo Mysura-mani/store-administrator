@@ -10,10 +10,11 @@
 <body>
 <div class="app-shell">
   <div class="topbar" id="topbar">
-    <div class="brand"><a href="/driver-dashboard.html">Administration<span>Tracker</span></a></div>
+    <div class="brand"><a href="/driver-dashboard.html"><span class="brand-mark">HX46</span><span class="brand-sub">Administration<span>Tracker</span></span></a></div>
     <div class="user-pill">
       <span id="driver-name-pill"></span>
       <button class="btn-secondary btn-small" id="theme-toggle-btn"></button>
+      <button class="btn-secondary btn-small" id="help-btn">Help?</button>
       <button class="btn-secondary" id="logout-btn">Log out</button>
     </div>
   </div>
@@ -112,6 +113,8 @@
     anchor = document.getElementById("next-btn").dataset.anchor;
     load();
   });
+
+  document.getElementById("help-btn").addEventListener("click", openHelpPrompt);
 
   document.getElementById("logout-btn").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST" });

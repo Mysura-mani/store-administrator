@@ -118,7 +118,8 @@ function renderBranchSidebar(session, activePage) {
   const isActive = (href) => (href === activePage ? "active" : "");
   document.getElementById("sidebar").innerHTML = `
     <div class="brand">
-      Administration<span>Tracker</span>
+      <span class="brand-mark">HX46</span>
+      <span class="brand-sub">Administration<span>Tracker</span></span>
     </div>
     <div class="owner-nav" id="branch-nav">
       <a href="/dashboard.html" class="nav-link ${isActive("/dashboard.html")}"><span class="nav-icon">&#128200;</span> Overview</a>
@@ -130,9 +131,11 @@ function renderBranchSidebar(session, activePage) {
       <div id="admin-unlock-slot"></div>
       <div id="back-to-owner-slot"></div>
       <button type="button" id="theme-toggle-btn"></button>
+      <button type="button" id="help-btn"><span class="nav-icon">&#10067;</span> Help?</button>
       <button type="button" id="logout-btn"><span class="nav-icon">&#8618;</span> Log out</button>
     </div>
   `;
+  document.getElementById("help-btn").addEventListener("click", openHelpPrompt);
 
   if (session.role === "admin") {
     document.getElementById("admin-nav-links").innerHTML = `
@@ -182,6 +185,28 @@ function renderBranchSidebar(session, activePage) {
     roleBadge.textContent = session.role === "admin" ? "Admin" : "Staff";
     roleBadge.className = `badge ${session.role === "admin" ? "badge-admin" : "badge-staff"}`;
   }
+}
+
+// Same modal pattern as openAdminPrompt() below — click outside or Close to
+// dismiss, no backend call needed since this is just static contact info.
+function openHelpPrompt() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <h3>Help</h3>
+      <p class="subtitle">Contact Mysura for support.</p>
+      <p><a href="tel:0864557661">0864557661</a></p>
+      <p><a href="mailto:pmysura1166@gmail.com">pmysura1166@gmail.com</a></p>
+      <button type="button" class="btn-secondary" id="help-close">Close</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+  document.getElementById("help-close").addEventListener("click", close);
 }
 
 function openAdminPrompt() {

@@ -76,13 +76,28 @@
    silently do nothing on those. This keeps `hidden` authoritative everywhere. */
 [hidden] { display: none !important; }
 
+/* Arial Black only exists as one static heavy weight — it isn't "Arial's
+   bold face" the way a normal family has a 400 and a 700 cut. Registering
+   it as a weight-range fallback on its own family name means every
+   existing font-weight:600+ declaration (headings, labels, buttons,
+   sidebar nav, ...) automatically renders in it while anything below 600
+   stays plain Arial, preserving the current regular-vs-bold look instead
+   of making the whole page uniformly black-weight. Same "no need to touch
+   those separately" trick the previous Comic Sans MS setup relied on. */
+@font-face {
+  font-family: "AppFont";
+  src: local("Arial");
+  font-weight: 100 599;
+}
+@font-face {
+  font-family: "AppFont";
+  src: local("Arial Black"), local("Arial-Black");
+  font-weight: 600 900;
+}
+
 body {
   margin: 0;
-  /* App-wide handwritten look. Comic Sans MS's paired Bold variant is what
-     every existing font-weight:600/700 declaration (headings, labels,
-     buttons, sidebar nav, ...) automatically renders in — no need to touch
-     those separately. */
-  font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", "Marker Felt", cursive, sans-serif;
+  font-family: "AppFont", Arial, Helvetica, sans-serif;
   color: var(--text);
   background-color: var(--bg);
   /* What the frosted/glass panels throughout the app actually blur — fixed
@@ -327,9 +342,14 @@ button {
   gap: 12px;
 }
 
-.brand { font-weight: 700; font-size: 18px; display: flex; align-items: center; gap: 10px; }
-.brand a { color: var(--text); text-decoration: none; }
-.brand span { color: var(--primary); }
+/* Stacked (HX46 above AdministrationTracker) rather than side by side — at
+   Arial Black's width, fitting both on one line inside a ~230px sidebar
+   either wrapped mid-word or ran past the edge. */
+.brand { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.25; }
+.brand a { display: flex; flex-direction: column; align-items: flex-start; color: var(--text); text-decoration: none; }
+.brand-mark { font-weight: 700; font-size: 20px; color: var(--text); }
+.brand-sub { font-weight: 600; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.brand-sub span { color: var(--primary); }
 .brand .branch-tag {
   font-size: 12px;
   font-weight: 700;
@@ -1089,8 +1109,7 @@ tbody tr:hover { background: var(--row-hover); }
   display: flex;
   flex-direction: column;
 }
-.owner-sidebar .brand { font-weight: 700; font-size: 18px; margin-bottom: 28px; padding: 0 8px; }
-.owner-sidebar .brand span { color: var(--primary); }
+.owner-sidebar .brand { margin-bottom: 28px; padding: 0 8px; }
 .owner-sidebar .owner-badge {
   display: inline-block;
   margin-top: 4px;
