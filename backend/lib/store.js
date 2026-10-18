@@ -1260,4 +1260,5 @@ module.exports = {
   deleteDeliveryEntry,
   buildDeliveryHistory,
   formatDateStr,
+  addDaysStr,
 };

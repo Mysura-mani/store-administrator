@@ -259,16 +259,20 @@ function requireDriver(req, res, next) {
 }
 
 // Staff can freely keep completing TODAY's entry (e.g. adding another driver
-// as their shift ends), but editing or deleting an entry for any other date
-// — a retroactive correction — requires admin.
-function requireAdminForPastEdit(getEntryFn) {
+// as their shift ends), but editing or deleting an entry further back than
+// staffWindowDays — a retroactive correction — requires admin. Delivery
+// entries pass the default of 0 (today only); the Tip Sheet passes 1 so
+// staff can also fix yesterday's entry without an admin.
+function requireAdminForPastEdit(getEntryFn, { staffWindowDays = 0 } = {}) {
   return ah(async (req, res, next) => {
     if (req.session.role === "admin") return next();
     const existing = await getEntryFn(req.session.branchId, req.params.id);
     if (!existing) return res.status(404).json({ error: "Entry not found." });
     const today = store.formatDateStr(new Date());
+    const earliestAllowed = store.addDaysStr(today, -staffWindowDays);
     const targetDate = (req.body && req.body.date) || existing.date;
-    if (existing.date === today && targetDate === today) return next();
+    const inWindow = (d) => d >= earliestAllowed && d <= today;
+    if (inWindow(existing.date) && inWindow(targetDate)) return next();
     return res.status(403).json({ error: "Admin access is required to edit or delete a past entry." });
   });
 }
@@ -663,7 +667,7 @@ app.post("/api/entries", requireAuth, ah(async (req, res) => {
 app.put(
   "/api/entries/:id",
   requireAuth,
-  requireAdminForPastEdit((branchId, id) => store.getEntry(branchId, id)),
+  requireAdminForPastEdit((branchId, id) => store.getEntry(branchId, id), { staffWindowDays: 1 }),
   ah(async (req, res) => {
     try {
       const updated = await store.updateEntry(req.session.branchId, req.params.id, req.body || {});
@@ -678,7 +682,7 @@ app.put(
 app.delete(
   "/api/entries/:id",
   requireAuth,
-  requireAdminForPastEdit((branchId, id) => store.getEntry(branchId, id)),
+  requireAdminForPastEdit((branchId, id) => store.getEntry(branchId, id), { staffWindowDays: 1 }),
   ah(async (req, res) => {
     const deleted = await store.deleteEntry(req.session.branchId, req.params.id);
     if (!deleted) return res.status(404).json({ error: "Entry not found." });

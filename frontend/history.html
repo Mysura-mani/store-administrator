@@ -48,6 +48,16 @@
   let anchor = todayStr();
   let isAdmin = false;
 
+  // Staff can edit today's and yesterday's entries without an admin —
+  // matches the backend's requireAdminForPastEdit(..., { staffWindowDays: 1 })
+  // for /api/entries/:id. Anything older still needs admin.
+  function canEditDay(date) {
+    if (isAdmin) return true;
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    return date === todayStr() || date === toDateStr(yesterday);
+  }
+
   function renderTable(history) {
     document.getElementById("period-label").textContent = history.label;
     const wrap = document.getElementById("table-wrap");
@@ -67,7 +77,7 @@
                 <td>${formatMoney(d.creditTips)}</td>
                 <td>${formatMoney(d.cashTips)}</td>
                 <td>${d.hours}h</td>
-                <td>${isAdmin ? `<button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}">Edit</button>` : ""}</td>
+                <td>${canEditDay(d.date) ? `<button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}">Edit</button>` : ""}</td>
               </tr>
             `
           )
