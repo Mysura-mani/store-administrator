@@ -23,7 +23,18 @@ const DRIVERS_HEADERS = ["id", "branchId", "name", "active", "username", "passwo
 // day's entry) so the Sheet itself stays readable to a non-technical owner
 // opening it directly — see docs/BACKEND_SCHEMA.md §7. `entryId` groups the
 // rows that make up one saved entry back together.
-const ENTRIES_HEADERS = ["id", "entryId", "branchId", "date", "employeeId", "employeeName", "hours", "cashTips", "creditTips"];
+// employeeBranchId/driverBranchId: normally identical to the row's own
+// branchId. They only differ for a "borrowed" shift - someone whose home
+// branch (where their Employees/Drivers row actually lives) isn't this
+// entry's branch - which is how one person can appear on another branch's
+// day without a duplicate record anywhere. An older row with this column
+// blank is read as "same as branchId" (see resolveEmployeeMap/resolveDriverMap).
+// Appended at the END of each list, not inserted in the middle - getRows()/
+// appendRow() map columns POSITIONALLY against this array, with no regard
+// for the sheet's own header row text, so inserting a new field anywhere
+// but the end would silently shift every column after it for every
+// already-saved row.
+const ENTRIES_HEADERS = ["id", "entryId", "branchId", "date", "employeeId", "employeeName", "hours", "cashTips", "creditTips", "employeeBranchId"];
 const DELIVERY_ENTRIES_HEADERS = [
   "id",
   "entryId",
@@ -40,6 +51,7 @@ const DELIVERY_ENTRIES_HEADERS = [
   "tips",
   "note",
   "cashOrdersJson",
+  "driverBranchId",
 ];
 
 function round2(n) {
@@ -313,6 +325,28 @@ async function listEmployees(branchId, { includeInactive = false } = {}) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Builds an id -> {name, branchId} map covering this branch's own employees
+// plus any OTHER branch a shift explicitly names as its homeBranchId (a
+// "borrowed" worker for the day) - a foreign branch's list is only fetched
+// when actually referenced, and membership is checked against that branch's
+// real list, not just trusted from the client, so a shift can never end up
+// credited to a branch it wasn't verified against.
+async function resolveEmployeeMap(branchId, shifts) {
+  const own = await listEmployees(branchId, { includeInactive: true });
+  const map = new Map(own.map((e) => [e.id, { name: e.name, branchId }]));
+  const foreignBranchIds = new Set(
+    (Array.isArray(shifts) ? shifts : [])
+      .filter((s) => s && s.homeBranchId && s.homeBranchId !== branchId)
+      .map((s) => s.homeBranchId)
+  );
+  for (const foreignBranchId of foreignBranchIds) {
+    if (!(await branchExists(foreignBranchId))) continue;
+    const foreignEmployees = await listEmployees(foreignBranchId, { includeInactive: true });
+    for (const e of foreignEmployees) map.set(e.id, { name: e.name, branchId: foreignBranchId });
+  }
+  return map;
+}
+
 async function addEmployee(branchId, name) {
   const employee = { id: newId(), branchId, name: name.trim(), active: "TRUE" };
   await sheetsClient.appendRow("Employees", EMPLOYEES_HEADERS, employee);
@@ -360,6 +394,11 @@ function computeShares(entry) {
       hours: s.hours,
       cashShare: round2(entry.cashTips * fraction),
       creditShare: round2(entry.creditTips * fraction),
+      // Only set for a borrowed shift (see ENTRIES_HEADERS) - carries the
+      // write-time name/home-branch snapshot through to buildHistory so it
+      // can label a guest correctly without a second cross-branch lookup.
+      homeBranchId: s.homeBranchId,
+      employeeName: s.employeeName,
     };
   });
 }
@@ -384,7 +423,18 @@ function groupEntryRows(rows) {
       date: first.date,
       cashTips: Number(first.cashTips) || 0,
       creditTips: Number(first.creditTips) || 0,
-      shifts: group.map((r) => ({ employeeId: r.employeeId, hours: Number(r.hours) || 0 })),
+      shifts: group.map((r) => {
+        // A blank employeeBranchId (rows saved before this column existed)
+        // means "same branch as the entry" - only an actual mismatch makes
+        // this a borrowed shift worth tagging.
+        const homeBranchId = r.employeeBranchId || r.branchId;
+        const isGuest = homeBranchId !== r.branchId;
+        return {
+          employeeId: r.employeeId,
+          hours: Number(r.hours) || 0,
+          ...(isGuest ? { homeBranchId, employeeName: r.employeeName || "" } : {}),
+        };
+      }),
       __rows: group.map((r) => r.__row),
     };
   });
@@ -411,16 +461,17 @@ async function getEntry(branchId, id) {
   return withShares(rest);
 }
 
-// `validEmployeeIds` scopes accepted shifts to this branch's own employee
-// list (active or inactive — an inactive one can still appear in an entry
-// being edited) so an entry can never end up referencing another branch's
-// employee, whether by a malicious request or a stale/bogus ID.
+// `employeeMap` (id -> {name, branchId}, from resolveEmployeeMap) scopes
+// accepted shifts to this branch's own employees plus any specific foreign
+// employee already verified as a real, named person on their own branch's
+// roster — so an entry can never end up referencing a made-up or unverified
+// cross-branch ID, whether by a malicious request or a stale/bogus one.
 // `allowEmptyShifts` is only true from updateEntry() below — editing an
 // existing entry down to zero employees is a deliberate "clear this day"
 // action (confirmed in the UI first), which updateEntry already turns into
 // effectively deleting the entry's rows. A brand-new entry with no one on
 // it would just be pointless, so addEntry() keeps the strict check.
-function validateEntryInput(input, validEmployeeIds, { allowEmptyShifts = false } = {}) {
+function validateEntryInput(branchId, input, employeeMap, { allowEmptyShifts = false } = {}) {
   if (!input.date || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
     throw new Error("A valid date is required.");
   }
@@ -430,17 +481,20 @@ function validateEntryInput(input, validEmployeeIds, { allowEmptyShifts = false 
   if (!Number.isFinite(creditTips) || creditTips < 0) throw new Error("Credit tips must be a non-negative number.");
   const shifts = Array.isArray(input.shifts) ? input.shifts : [];
   const cleanShifts = shifts
-    .filter((s) => s && s.employeeId && validEmployeeIds.has(s.employeeId))
+    .filter((s) => s && s.employeeId && employeeMap.has(s.employeeId))
     .map((s) => {
       const hours = Number(s.hours);
       if (!Number.isFinite(hours) || hours <= 0) throw new Error("Each employee's hours must be a positive number.");
-      return { employeeId: s.employeeId, hours };
+      const owner = employeeMap.get(s.employeeId);
+      return owner.branchId !== branchId
+        ? { employeeId: s.employeeId, hours, homeBranchId: owner.branchId, employeeName: owner.name }
+        : { employeeId: s.employeeId, hours, employeeName: owner.name };
     });
   if (!allowEmptyShifts && cleanShifts.length === 0) throw new Error("Add at least one employee with hours worked.");
   return { date: input.date, cashTips, creditTips, shifts: cleanShifts };
 }
 
-async function writeEntryRows(entryId, branchId, clean, nameById) {
+async function writeEntryRows(entryId, branchId, clean) {
   for (const shift of clean.shifts) {
     await sheetsClient.appendRow("Entries", ENTRIES_HEADERS, {
       id: newId(),
@@ -448,7 +502,8 @@ async function writeEntryRows(entryId, branchId, clean, nameById) {
       branchId,
       date: clean.date,
       employeeId: shift.employeeId,
-      employeeName: nameById.get(shift.employeeId) || "",
+      employeeBranchId: shift.homeBranchId || branchId,
+      employeeName: shift.employeeName || "",
       hours: shift.hours,
       cashTips: clean.cashTips,
       creditTips: clean.creditTips,
@@ -457,20 +512,18 @@ async function writeEntryRows(entryId, branchId, clean, nameById) {
 }
 
 async function addEntry(branchId, input) {
-  const employees = await listEmployees(branchId, { includeInactive: true });
-  const nameById = new Map(employees.map((e) => [e.id, e.name]));
-  const clean = validateEntryInput(input, new Set(employees.map((e) => e.id)));
+  const employeeMap = await resolveEmployeeMap(branchId, input.shifts);
+  const clean = validateEntryInput(branchId, input, employeeMap);
   const entryId = newId();
-  await writeEntryRows(entryId, branchId, clean, nameById);
+  await writeEntryRows(entryId, branchId, clean);
   return withShares({ id: entryId, date: clean.date, cashTips: clean.cashTips, creditTips: clean.creditTips, shifts: clean.shifts });
 }
 
 async function updateEntry(branchId, id, input) {
   const existing = await findEntryRow(branchId, id);
   if (!existing) return null;
-  const employees = await listEmployees(branchId, { includeInactive: true });
-  const nameById = new Map(employees.map((e) => [e.id, e.name]));
-  const clean = validateEntryInput(input, new Set(employees.map((e) => e.id)), { allowEmptyShifts: true });
+  const employeeMap = await resolveEmployeeMap(branchId, input.shifts);
+  const clean = validateEntryInput(branchId, input, employeeMap, { allowEmptyShifts: true });
   // The number of shifts can differ from what was saved before, so replace
   // every row for this entry rather than updating them one-for-one — delete
   // in descending row order first so earlier deletes don't shift the row
@@ -478,7 +531,7 @@ async function updateEntry(branchId, id, input) {
   for (const rowNum of [...existing.__rows].sort((a, b) => b - a)) {
     await sheetsClient.deleteRow("Entries", rowNum);
   }
-  await writeEntryRows(id, branchId, clean, nameById);
+  await writeEntryRows(id, branchId, clean);
   return withShares({ id, date: clean.date, cashTips: clean.cashTips, creditTips: clean.creditTips, shifts: clean.shifts });
 }
 
@@ -500,6 +553,23 @@ async function listDrivers(branchId, { includeInactive = false } = {}) {
     .map((r) => ({ id: r.id, name: r.name, active: sheetsClient.toBool(r.active), username: r.username || "" }))
     .filter((d) => includeInactive || d.active)
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Same pattern as resolveEmployeeMap above, for drivers.
+async function resolveDriverMap(branchId, drivers) {
+  const own = await listDrivers(branchId, { includeInactive: true });
+  const map = new Map(own.map((d) => [d.id, { name: d.name, branchId }]));
+  const foreignBranchIds = new Set(
+    (Array.isArray(drivers) ? drivers : [])
+      .filter((d) => d && d.homeBranchId && d.homeBranchId !== branchId)
+      .map((d) => d.homeBranchId)
+  );
+  for (const foreignBranchId of foreignBranchIds) {
+    if (!(await branchExists(foreignBranchId))) continue;
+    const foreignDrivers = await listDrivers(foreignBranchId, { includeInactive: true });
+    for (const d of foreignDrivers) map.set(d.id, { name: d.name, branchId: foreignBranchId });
+  }
+  return map;
 }
 
 // Usernames are global (not scoped to a branch) since a driver logs in from
@@ -604,6 +674,10 @@ function computeDeliveryPay(driverRow, rates, isSolo) {
     deliveryPay: round2(deliveryPay),
     tips: round2(tips),
     topUpApplied,
+    // Only set for a borrowed driver (see DELIVERY_ENTRIES_HEADERS) - carries
+    // the write-time name/home-branch snapshot through to buildDeliveryHistory.
+    homeBranchId: driverRow.homeBranchId,
+    driverName: driverRow.driverName,
     // "Pay" — base pay + orders pay (minimum-wage floor applied), before
     // tips. Exposed separately from finalPay ("Actual pay") so the UI can
     // show the two as a visible Pay + Tips = Actual pay breakdown instead
@@ -642,14 +716,21 @@ function groupDeliveryEntryRows(rows) {
       branchId: first.branchId,
       date: first.date,
       driverCount: Number(first.driverCount) || 0,
-      drivers: group.map((r) => ({
-        driverId: r.driverId,
-        hours: Number(r.hours) || 0,
-        zoneCounts: [Number(r.zone1Count) || 0, Number(r.zone2Count) || 0, Number(r.zone3Count) || 0, Number(r.zone4Count) || 0],
-        cashOrders: JSON.parse(r.cashOrdersJson || "[]"),
-        tips: Number(r.tips) || 0,
-        note: r.note || "",
-      })),
+      drivers: group.map((r) => {
+        // A blank driverBranchId (rows saved before this column existed)
+        // means "same branch as the entry".
+        const homeBranchId = r.driverBranchId || r.branchId;
+        const isGuest = homeBranchId !== r.branchId;
+        return {
+          driverId: r.driverId,
+          hours: Number(r.hours) || 0,
+          zoneCounts: [Number(r.zone1Count) || 0, Number(r.zone2Count) || 0, Number(r.zone3Count) || 0, Number(r.zone4Count) || 0],
+          cashOrders: JSON.parse(r.cashOrdersJson || "[]"),
+          tips: Number(r.tips) || 0,
+          note: r.note || "",
+          ...(isGuest ? { homeBranchId, driverName: r.driverName || "" } : {}),
+        };
+      }),
       __rows: group.map((r) => r.__row),
     };
   });
@@ -701,10 +782,12 @@ function parseDeliveryDriverFields(d) {
   return { zoneCounts, cashOrders, tips, note };
 }
 
-// `validDriverIds` scopes accepted rows to this branch's own driver list
-// (active or inactive) so a delivery entry can never end up referencing
-// another branch's driver.
-function validateDeliveryEntryInput(input, validDriverIds) {
+// `driverMap` (id -> {name, branchId}, from resolveDriverMap) scopes
+// accepted rows to this branch's own drivers plus any specific foreign
+// driver already verified as a real, named person on their own branch's
+// roster, so a delivery entry can never end up referencing a made-up or
+// unverified cross-branch driver.
+function validateDeliveryEntryInput(branchId, input, driverMap) {
   if (!input.date || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
     throw new Error("A valid date is required.");
   }
@@ -718,10 +801,12 @@ function validateDeliveryEntryInput(input, validDriverIds) {
     // A driver row that hasn't been filled in yet (no driver picked, or no
     // hours yet — e.g. they're still out on shift) is skipped rather than
     // rejected, so each driver can be saved independently as they finish up.
-    if (!d || !d.driverId || !validDriverIds.has(d.driverId)) continue;
+    if (!d || !d.driverId || !driverMap.has(d.driverId)) continue;
     const hours = Number(d.hours);
     if (!Number.isFinite(hours) || hours <= 0) continue;
-    cleanDrivers.push({ driverId: d.driverId, hours, ...parseDeliveryDriverFields(d) });
+    const owner = driverMap.get(d.driverId);
+    const guest = owner.branchId !== branchId ? { homeBranchId: owner.branchId, driverName: owner.name } : { driverName: owner.name };
+    cleanDrivers.push({ driverId: d.driverId, hours, ...parseDeliveryDriverFields(d), ...guest });
   }
   if (cleanDrivers.length === 0) throw new Error("Enter at least one driver's hours before saving.");
   return { date: input.date, driverCount, drivers: cleanDrivers };
@@ -731,14 +816,16 @@ function validateDeliveryEntryInput(input, validDriverIds) {
 // saved day: an empty/invalid submission is rejected outright rather than
 // silently skipped, since there's nothing else in this request to fall back
 // on.
-function validateSingleDeliveryDriverInput(d, validDriverIds) {
-  if (!d || !d.driverId || !validDriverIds.has(d.driverId)) throw new Error("Choose a driver.");
+function validateSingleDeliveryDriverInput(branchId, d, driverMap) {
+  if (!d || !d.driverId || !driverMap.has(d.driverId)) throw new Error("Choose a driver.");
   const hours = Number(d.hours);
   if (!Number.isFinite(hours) || hours <= 0) throw new Error("Enter this driver's hours before saving.");
-  return { driverId: d.driverId, hours, ...parseDeliveryDriverFields(d) };
+  const owner = driverMap.get(d.driverId);
+  const guest = owner.branchId !== branchId ? { homeBranchId: owner.branchId, driverName: owner.name } : { driverName: owner.name };
+  return { driverId: d.driverId, hours, ...parseDeliveryDriverFields(d), ...guest };
 }
 
-async function writeDeliveryEntryRows(entryId, branchId, clean, nameById) {
+async function writeDeliveryEntryRows(entryId, branchId, clean) {
   for (const d of clean.drivers) {
     await sheetsClient.appendRow("DeliveryEntries", DELIVERY_ENTRIES_HEADERS, {
       id: newId(),
@@ -747,7 +834,8 @@ async function writeDeliveryEntryRows(entryId, branchId, clean, nameById) {
       date: clean.date,
       driverCount: clean.driverCount,
       driverId: d.driverId,
-      driverName: nameById.get(d.driverId) || "",
+      driverBranchId: d.homeBranchId || branchId,
+      driverName: d.driverName || "",
       hours: d.hours,
       zone1Count: d.zoneCounts[0],
       zone2Count: d.zoneCounts[1],
@@ -761,11 +849,10 @@ async function writeDeliveryEntryRows(entryId, branchId, clean, nameById) {
 }
 
 async function addDeliveryEntry(branchId, input) {
-  const drivers = await listDrivers(branchId, { includeInactive: true });
-  const nameById = new Map(drivers.map((d) => [d.id, d.name]));
-  const clean = validateDeliveryEntryInput(input, new Set(drivers.map((d) => d.id)));
+  const driverMap = await resolveDriverMap(branchId, input.drivers);
+  const clean = validateDeliveryEntryInput(branchId, input, driverMap);
   const entryId = newId();
-  await writeDeliveryEntryRows(entryId, branchId, clean, nameById);
+  await writeDeliveryEntryRows(entryId, branchId, clean);
   const rates = await getBranchRates(branchId);
   return withDeliveryShares({ id: entryId, date: clean.date, driverCount: clean.driverCount, drivers: clean.drivers }, rates);
 }
@@ -773,13 +860,12 @@ async function addDeliveryEntry(branchId, input) {
 async function updateDeliveryEntry(branchId, id, input) {
   const existing = await findDeliveryEntryRow(branchId, id);
   if (!existing) return null;
-  const drivers = await listDrivers(branchId, { includeInactive: true });
-  const nameById = new Map(drivers.map((d) => [d.id, d.name]));
-  const clean = validateDeliveryEntryInput(input, new Set(drivers.map((d) => d.id)));
+  const driverMap = await resolveDriverMap(branchId, input.drivers);
+  const clean = validateDeliveryEntryInput(branchId, input, driverMap);
   for (const rowNum of [...existing.__rows].sort((a, b) => b - a)) {
     await sheetsClient.deleteRow("DeliveryEntries", rowNum);
   }
-  await writeDeliveryEntryRows(id, branchId, clean, nameById);
+  await writeDeliveryEntryRows(id, branchId, clean);
   const rates = await getBranchRates(branchId);
   return withDeliveryShares({ id, date: clean.date, driverCount: clean.driverCount, drivers: clean.drivers }, rates);
 }
@@ -809,9 +895,13 @@ async function findDeliveryEntryDriverRow(branchId, entryId, driverId) {
 async function updateDeliveryEntryDriver(branchId, entryId, driverId, input) {
   const row = await findDeliveryEntryDriverRow(branchId, entryId, driverId);
   if (!row) return null;
-  const drivers = await listDrivers(branchId, { includeInactive: true });
-  const clean = validateSingleDeliveryDriverInput({ ...input, driverId }, new Set(drivers.map((d) => d.id)));
-  const driverRecord = drivers.find((d) => d.id === driverId);
+  // The driver this row belongs to is fixed (the URL's :driverId, not
+  // editable here) - re-validate against THEIR own home branch (the one
+  // already recorded on the row, see DELIVERY_ENTRIES_HEADERS), not
+  // necessarily the acting branch's own driver list.
+  const homeBranchId = row.driverBranchId || row.branchId;
+  const driverMap = await resolveDriverMap(branchId, [{ driverId, homeBranchId }]);
+  const clean = validateSingleDeliveryDriverInput(branchId, { ...input, driverId }, driverMap);
   await sheetsClient.updateRow("DeliveryEntries", DELIVERY_ENTRIES_HEADERS, row.__row, {
     id: row.id,
     entryId: row.entryId,
@@ -819,7 +909,8 @@ async function updateDeliveryEntryDriver(branchId, entryId, driverId, input) {
     date: row.date,
     driverCount: row.driverCount,
     driverId,
-    driverName: driverRecord ? driverRecord.name : row.driverName,
+    driverBranchId: clean.homeBranchId || row.branchId,
+    driverName: clean.driverName || row.driverName,
     hours: clean.hours,
     zone1Count: clean.zoneCounts[0],
     zone2Count: clean.zoneCounts[1],
@@ -948,6 +1039,8 @@ async function buildHistory({ branchId, mode, anchor }) {
   const entries = await listEntries(branchId, { from: range.from, to: range.to });
   const employees = await listEmployees(branchId, { includeInactive: true });
   const employeesById = new Map(employees.map((e) => [e.id, e]));
+  const branches = await getBranches();
+  const branchNameById = new Map(branches.map((b) => [b.id, b.name]));
 
   const byEmployee = new Map();
   for (const entry of entries) {
@@ -958,6 +1051,11 @@ async function buildHistory({ branchId, mode, anchor }) {
         cashTips: 0,
         creditTips: 0,
         days: [],
+        // Set only for a borrowed shift (see ENTRIES_HEADERS/computeShares) -
+        // the write-time name/home-branch snapshot, used below instead of
+        // this branch's own (foreign-to-it) employee list.
+        guestName: share.homeBranchId ? share.employeeName : null,
+        guestBranchId: share.homeBranchId || null,
       };
       row.hours += share.hours;
       row.cashTips += share.cashShare;
@@ -976,7 +1074,9 @@ async function buildHistory({ branchId, mode, anchor }) {
   const rows = Array.from(byEmployee.values())
     .map((row) => ({
       employeeId: row.employeeId,
-      name: employeesById.get(row.employeeId)?.name || "(removed employee)",
+      name: row.guestBranchId
+        ? `${row.guestName || "Guest"} (${branchNameById.get(row.guestBranchId) || "another branch"})`
+        : employeesById.get(row.employeeId)?.name || "(removed employee)",
       hours: round2(row.hours),
       cashTips: round2(row.cashTips),
       creditTips: round2(row.creditTips),
@@ -1020,6 +1120,8 @@ async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
   const entries = await listDeliveryEntries(branchId, { from: range.from, to: range.to });
   const drivers = await listDrivers(branchId, { includeInactive: true });
   const driversById = new Map(drivers.map((d) => [d.id, d]));
+  const branches = await getBranches();
+  const branchNameById = new Map(branches.map((b) => [b.id, b.name]));
 
   const byDriver = new Map();
   for (const entry of entries) {
@@ -1038,6 +1140,8 @@ async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
         cashOrderCount: 0,
         cashOrderValue: 0,
         days: [],
+        guestName: share.homeBranchId ? share.driverName : null,
+        guestBranchId: share.homeBranchId || null,
       };
       row.hours += share.hours;
       row.basePay += share.basePay;
@@ -1072,7 +1176,9 @@ async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
   const rows = Array.from(byDriver.values())
     .map((row) => ({
       driverId: row.driverId,
-      name: driversById.get(row.driverId)?.name || "(removed driver)",
+      name: row.guestBranchId
+        ? `${row.guestName || "Guest"} (${branchNameById.get(row.guestBranchId) || "another branch"})`
+        : driversById.get(row.driverId)?.name || "(removed driver)",
       hours: round2(row.hours),
       basePay: round2(row.basePay),
       deliveryPay: round2(row.deliveryPay),
@@ -1116,9 +1222,73 @@ async function buildDeliveryHistory({ branchId, mode, anchor, onlyDriverId }) {
 
 // The driver's own read-only view — always weekly (never daily/monthly/
 // quarterly like the branch admin's view), and only ever this one driver's
-// pay, never other drivers'.
-async function getDriverOwnHistory({ branchId, driverId, anchor }) {
-  return buildDeliveryHistory({ branchId, mode: "week", anchor, onlyDriverId: driverId });
+// pay, never other drivers'. Checks every branch, not just the driver's own
+// home branch, since they may have been added as a "borrowed" driver (see
+// DELIVERY_ENTRIES_HEADERS) to someone else's day - each branch's shifts
+// already carry their own branch's pay (computed with that branch's own
+// rates when saved), this just needs to surface and label all of them.
+async function getDriverOwnHistory({ driverId, anchor }) {
+  const branches = await getBranches();
+  let shared = null;
+  const perBranch = [];
+  for (const b of branches) {
+    const h = await buildDeliveryHistory({ branchId: b.id, mode: "week", anchor, onlyDriverId: driverId });
+    if (!shared) shared = { mode: h.mode, anchor: h.anchor, prevAnchor: h.prevAnchor, nextAnchor: h.nextAnchor, from: h.from, to: h.to, label: h.label };
+    if (h.rows[0]) perBranch.push({ branchId: b.id, branchName: b.name, row: h.rows[0] });
+  }
+
+  if (perBranch.length === 0) {
+    return {
+      ...shared,
+      entryCount: 0,
+      rows: [],
+      totals: { hours: 0, basePay: 0, deliveryPay: 0, tips: 0, pay: 0, finalPay: 0, cashOrderCount: 0, cashOrderValue: 0 },
+    };
+  }
+
+  const merged = {
+    driverId,
+    name: perBranch[0].row.name,
+    hours: 0,
+    basePay: 0,
+    deliveryPay: 0,
+    tips: 0,
+    pay: 0,
+    finalPay: 0,
+    topUpDays: 0,
+    cashOrderCount: 0,
+    cashOrderValue: 0,
+    days: [],
+  };
+  for (const { branchId, branchName, row } of perBranch) {
+    merged.hours = round2(merged.hours + row.hours);
+    merged.basePay = round2(merged.basePay + row.basePay);
+    merged.deliveryPay = round2(merged.deliveryPay + row.deliveryPay);
+    merged.tips = round2(merged.tips + row.tips);
+    merged.pay = round2(merged.pay + row.pay);
+    merged.finalPay = round2(merged.finalPay + row.finalPay);
+    merged.topUpDays += row.topUpDays;
+    merged.cashOrderCount += row.cashOrderCount;
+    merged.cashOrderValue = round2(merged.cashOrderValue + row.cashOrderValue);
+    for (const d of row.days) merged.days.push({ ...d, branchId, branchName });
+  }
+  merged.days.sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  return {
+    ...shared,
+    entryCount: merged.days.length,
+    rows: [merged],
+    totals: {
+      hours: merged.hours,
+      basePay: merged.basePay,
+      deliveryPay: merged.deliveryPay,
+      tips: merged.tips,
+      pay: merged.pay,
+      finalPay: merged.finalPay,
+      cashOrderCount: merged.cashOrderCount,
+      cashOrderValue: merged.cashOrderValue,
+    },
+  };
 }
 
 // ---------- flattened cross-branch dataset (owner analytics dashboard) ----------

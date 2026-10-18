@@ -310,7 +310,7 @@ app.post("/api/driver-login", authLimiter, ah(async (req, res) => {
 
 app.get("/api/driver/history", requireDriver, ah(async (req, res) => {
   const anchor = /^\d{4}-\d{2}-\d{2}$/.test(req.query.anchor || "") ? req.query.anchor : store.formatDateStr(new Date());
-  res.json(await store.getDriverOwnHistory({ branchId: req.session.branchId, driverId: req.session.driverId, anchor }));
+  res.json(await store.getDriverOwnHistory({ driverId: req.session.driverId, anchor }));
 }));
 
 app.post("/api/elevate-admin", authLimiter, requireAuth, ah(async (req, res) => {
@@ -619,6 +619,15 @@ app.get("/api/employees", requireAuth, ah(async (req, res) => {
   res.json(await store.listEmployees(req.session.branchId, { includeInactive }));
 }));
 
+// Powers the Tip Sheet's "add an employee from another branch" picker -
+// deliberately NOT scoped to the caller's own branchId like /api/employees
+// above, since the whole point is browsing a DIFFERENT branch's roster.
+// Returns only {id, name}, matching store.listEmployees' own shape.
+app.get("/api/branches/:id/employees", requireAuth, ah(async (req, res) => {
+  if (!(await store.branchExists(req.params.id))) return res.status(404).json({ error: "Store not found." });
+  res.json(await store.listEmployees(req.params.id));
+}));
+
 app.post("/api/employees", requireAuth, requireAdmin, ah(async (req, res) => {
   const { name } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: "Employee name is required." });
@@ -703,6 +712,16 @@ app.get("/api/history", requireAuth, ah(async (req, res) => {
 app.get("/api/drivers", requireAuth, ah(async (req, res) => {
   const includeInactive = req.query.all === "1";
   res.json(await store.listDrivers(req.session.branchId, { includeInactive }));
+}));
+
+// Powers the Delivery Payout's "add a driver from another branch" picker -
+// see /api/branches/:id/employees above. Strips username (store.listDrivers
+// includes it for the acting branch's own driver-management page) so a
+// borrowing branch's staff never sees another branch's driver login names.
+app.get("/api/branches/:id/drivers", requireAuth, ah(async (req, res) => {
+  if (!(await store.branchExists(req.params.id))) return res.status(404).json({ error: "Store not found." });
+  const drivers = await store.listDrivers(req.params.id);
+  res.json(drivers.map((d) => ({ id: d.id, name: d.name })));
 }));
 
 app.post("/api/drivers", requireAuth, requireAdmin, ah(async (req, res) => {
