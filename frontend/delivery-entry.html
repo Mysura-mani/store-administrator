@@ -55,6 +55,13 @@
 <script>
   let drivers = [];
   let rates = null;
+  let branches = [];
+  let sessionBranchId = null;
+
+  function branchName(id) {
+    const b = branches.find((x) => x.id === id);
+    return b ? b.name : "another branch";
+  }
   // Set only when reached via Delivery History's per-driver "Edit" link —
   // swaps the whole-day multi-driver form for a single locked-to-one-driver
   // correction with just a Submit button (see loadForSingleDriverEdit).
@@ -85,16 +92,42 @@
       .join("");
   }
 
+  // Three states for the Driver field, same split-button pattern as the Tip
+  // Sheet's "+ Add employee":
+  //  - no driverId, not guest: nothing picked yet (e.g. a fresh card from
+  //    raising the driver count) - a split button rather than a name
+  //    already sitting there unasked for.
+  //  - guest (data.homeBranchId/driverName - a "borrowed" driver from
+  //    another branch, see DELIVERY_ENTRIES_HEADERS): a locked single-option
+  //    select, since which person it refers to isn't editable after picking.
+  //  - otherwise: a normal, freely-reselectable driver dropdown.
+  function driverFieldHtml(driverId, guest) {
+    if (guest) {
+      return `<select class="d-driver" disabled><option value="${escapeHtml(driverId)}" selected>${escapeHtml(guest.name)} (${escapeHtml(guest.branchName)})</option></select>`;
+    }
+    if (!driverId) {
+      return `
+        <div class="split-btn">
+          <button type="button" class="btn-secondary split-btn-main d-add-driver-btn">+ Add driver</button>
+          <button type="button" class="btn-secondary split-btn-caret d-add-driver-caret" aria-label="More ways to add a driver">&#9662;</button>
+        </div>
+      `;
+    }
+    return `<select class="d-driver">${driverOptionsHtml(driverId)}</select>`;
+  }
+
   function createDriverCard(index, data = {}, options = {}) {
-    const { driverId = "", hours = "", zoneCounts = [0, 0, 0, 0], cashOrders = [], tips = "", note = "" } = data;
+    const { driverId = "", hours = "", zoneCounts = [0, 0, 0, 0], cashOrders = [], tips = "", note = "", homeBranchId = "", driverName = "" } = data;
+    const guest = homeBranchId ? { branchId: homeBranchId, branchName: branchName(homeBranchId), name: driverName } : null;
     const card = document.createElement("div");
     card.className = "driver-card";
+    if (guest) card.dataset.guestBranch = guest.branchId;
     card.innerHTML = `
       <div class="driver-card-header">Driver ${index + 1}</div>
       <div class="row">
         <div>
           <label>Driver</label>
-          <select class="d-driver">${driverOptionsHtml(driverId)}</select>
+          <div class="driver-pick-row" style="display:flex; gap:8px; align-items:center">${driverFieldHtml(driverId, guest)}</div>
         </div>
         <div>
           <label>Hours</label>
@@ -159,6 +192,31 @@
     });
     const sequentialSubmit = card.querySelector(".driver-card-submit");
     if (sequentialSubmit) sequentialSubmit.addEventListener("click", () => saveSequentialDriver(card, index));
+
+    const addDriverBtn = card.querySelector(".d-add-driver-btn");
+    if (addDriverBtn) {
+      addDriverBtn.addEventListener("click", () => {
+        const pickRow = card.querySelector(".driver-pick-row");
+        pickRow.innerHTML = driverFieldHtml(drivers.length ? drivers[0].id : "");
+        const select = pickRow.querySelector(".d-driver");
+        if (select) select.focus();
+      });
+    }
+    const addDriverCaret = card.querySelector(".d-add-driver-caret");
+    if (addDriverCaret) {
+      addDriverCaret.addEventListener("click", async (e) => {
+        const choice = await openButtonMenu(e.currentTarget, [{ label: "Add from another branch", value: "guest" }]);
+        if (choice !== "guest") return;
+        const picked = await openCrossBranchPicker({ branches, excludeBranchId: sessionBranchId, kind: "drivers", label: "Driver" });
+        if (!picked) return;
+        card.dataset.guestBranch = picked.branchId;
+        card.querySelector(".driver-pick-row").innerHTML = driverFieldHtml(picked.id, {
+          branchId: picked.branchId,
+          branchName: picked.branchName,
+          name: picked.name,
+        });
+      });
+    }
 
     renderCashOrderInputs(card, cashOrders.length, cashOrders);
     return card;
@@ -237,14 +295,20 @@
   }
 
   function readSingleCard(card) {
-    return {
-      driverId: card.querySelector(".d-driver").value,
+    // A card still showing the "+ Add driver" split button (no .d-driver
+    // yet) has nothing picked — backend validation already skips/rejects an
+    // empty driverId exactly as it did for an untouched dropdown before.
+    const driverSelect = card.querySelector(".d-driver");
+    const driver = {
+      driverId: driverSelect ? driverSelect.value : "",
       hours: Number(card.querySelector(".d-hours").value),
       zoneCounts: Array.from(card.querySelectorAll(".d-zone")).map((input) => Number(input.value) || 0),
       cashOrders: Array.from(card.querySelectorAll(".cash-order-value-input")).map((input) => Number(input.value) || 0),
       tips: Number(card.querySelector(".d-tips").value) || 0,
       note: card.querySelector(".d-note").value || "",
     };
+    if (card.dataset.guestBranch) driver.homeBranchId = card.dataset.guestBranch;
+    return driver;
   }
 
   function readDriverCards() {
@@ -423,7 +487,10 @@
     if (!driverData) throw new Error("That driver's entry for this day was not found.");
     sequentialMode = false;
     singleDriverEdit = { entryId, driverId };
-    const driverName = (drivers.find((d) => d.id === driverId) || {}).name || "";
+    // A guest driver (see DELIVERY_ENTRIES_HEADERS) isn't in this branch's
+    // own drivers list, so fall back to the name snapshot already carried
+    // on their row.
+    const driverName = (drivers.find((d) => d.id === driverId) || {}).name || driverData.driverName || "";
     document.getElementById("form-title").textContent = driverName
       ? `Edit ${driverName}'s payout — ${entry.date}`
       : `Edit driver payout — ${entry.date}`;
@@ -475,8 +542,10 @@
     const session = await requireSession();
     if (!session) return;
     renderBranchSidebar(session, "/delivery-entry.html");
+    sessionBranchId = session.branchId;
 
     try {
+      branches = await api("/api/branches");
       await loadDrivers();
 
       const params = new URLSearchParams(window.location.search);

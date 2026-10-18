@@ -313,6 +313,138 @@ function promptDialog(message, { inputType = "text", placeholder = "" } = {}) {
   });
 }
 
+// A small options menu anchored below a single trigger button — e.g. one
+// "+ Add employee" button offering both "Add employee" and "Add from
+// another branch" instead of two side-by-side buttons. Reuses the same
+// .cdd-panel/.cdd-option look as the custom <select> dropdown (see
+// enhanceSelect() above) for a consistent feel, appended to <body> for the
+// same position:fixed/overflow-clipping reason. `options` is
+// [{label, value}]; resolves to the clicked option's `value`, or null if
+// dismissed without a choice.
+function openButtonMenu(triggerEl, options) {
+  return new Promise((resolve) => {
+    const panel = document.createElement("div");
+    panel.className = "cdd-panel";
+    panel.setAttribute("role", "menu");
+    options.forEach((opt) => {
+      const item = document.createElement("div");
+      item.className = "cdd-option";
+      item.setAttribute("role", "menuitem");
+      item.textContent = opt.label;
+      item.addEventListener("click", () => finish(opt.value));
+      panel.appendChild(item);
+    });
+    document.body.appendChild(panel);
+
+    panel.style.whiteSpace = "nowrap";
+    function position() {
+      const r = triggerEl.getBoundingClientRect();
+      // Right-aligned to the trigger's own right edge rather than its left:
+      // this is also used as a narrow caret-only split-button segment (see
+      // .split-btn-caret in styles.css), where left-aligning a wide menu to
+      // a ~30px trigger would push most of it off to the right.
+      const width = Math.max(r.width, 200);
+      panel.style.left = `${r.right - width}px`;
+      panel.style.minWidth = `${width}px`;
+      panel.style.top = `${r.bottom + 4}px`;
+    }
+    position();
+
+    const finish = (value) => {
+      panel.remove();
+      window.removeEventListener("scroll", position, true);
+      window.removeEventListener("resize", position);
+      document.removeEventListener("mousedown", onOutsideClick, true);
+      resolve(value);
+    };
+    function onOutsideClick(e) {
+      if (!panel.contains(e.target) && e.target !== triggerEl) finish(null);
+    }
+    window.addEventListener("scroll", position, true);
+    window.addEventListener("resize", position);
+    // Deferred so the same click that opened the menu (which is still
+    // bubbling up to document) doesn't immediately close it again.
+    setTimeout(() => document.addEventListener("mousedown", onOutsideClick, true), 0);
+  });
+}
+
+// Lets staff add a one-off "guest" to today's entry who's actually on
+// another branch's own roster (a temporary/borrowed worker) by referencing
+// their real employee/driver record instead of duplicating them as a new
+// one — used by the Tip Sheet and Delivery Payout's "add from another
+// branch" buttons. `branches` is the already-fetched {id, name}[] branch
+// list; `kind` is "employees" or "drivers" (the /api/branches/:id/<kind>
+// path). Resolves to {id, name, branchId, branchName}, or null if cancelled.
+function openCrossBranchPicker({ branches, excludeBranchId, kind, label }) {
+  return new Promise((resolve) => {
+    const choices = branches.filter((b) => b.id !== excludeBranchId);
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <h3>Add ${escapeHtml(label)} from another branch</h3>
+        <p class="subtitle">Picks a real ${escapeHtml(label.toLowerCase())} already set up at another branch — nothing new is created, and it still only lives in that branch's own list.</p>
+        ${
+          choices.length === 0
+            ? `<p class="error-msg">There are no other branches to borrow from.</p>`
+            : `
+              <label for="cbp-branch">Branch</label>
+              <select id="cbp-branch">${choices.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join("")}</select>
+              <label for="cbp-person" style="margin-top:10px">${escapeHtml(label)}</label>
+              <select id="cbp-person"><option value="">Loading&hellip;</option></select>
+              <div class="error-msg" id="cbp-error"></div>
+            `
+        }
+        <div style="display:flex; gap:10px; margin-top:14px">
+          ${choices.length === 0 ? "" : `<button type="button" class="btn-primary" id="cbp-add">Add</button>`}
+          <button type="button" class="btn-secondary" id="cbp-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const finish = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) finish(null);
+    });
+    document.getElementById("cbp-cancel").addEventListener("click", () => finish(null));
+    if (choices.length === 0) return;
+
+    const branchSelect = document.getElementById("cbp-branch");
+    const personSelect = document.getElementById("cbp-person");
+    const errorEl = document.getElementById("cbp-error");
+    let people = [];
+
+    async function loadPeopleFor(branchId) {
+      personSelect.innerHTML = `<option value="">Loading&hellip;</option>`;
+      try {
+        people = await api(`/api/branches/${branchId}/${kind}`);
+        personSelect.innerHTML = people.length
+          ? people.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join("")
+          : `<option value="">No one active at that branch</option>`;
+      } catch (err) {
+        people = [];
+        personSelect.innerHTML = `<option value="">Couldn't load</option>`;
+      }
+    }
+
+    branchSelect.addEventListener("change", () => loadPeopleFor(branchSelect.value));
+    loadPeopleFor(branchSelect.value);
+
+    document.getElementById("cbp-add").addEventListener("click", () => {
+      const person = people.find((p) => p.id === personSelect.value);
+      if (!person) {
+        errorEl.textContent = `Choose a ${label.toLowerCase()}.`;
+        return;
+      }
+      const branch = choices.find((b) => b.id === branchSelect.value);
+      finish({ id: person.id, name: person.name, branchId: branchSelect.value, branchName: branch ? branch.name : "" });
+    });
+  });
+}
+
 function formatMoney(n) {
   return `€${Number(n).toFixed(2)}`;
 }

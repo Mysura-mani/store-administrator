@@ -43,7 +43,10 @@
 
       <div class="section-title" style="margin-top:20px">
         <label style="margin:0">Employees & hours worked</label>
-        <button type="button" class="btn-secondary" id="add-shift">+ Add employee</button>
+        <div class="split-btn">
+          <button type="button" class="btn-secondary split-btn-main" id="add-shift">+ Add employee</button>
+          <button type="button" class="btn-secondary split-btn-caret" id="add-shift-caret" aria-label="More ways to add an employee">&#9662;</button>
+        </div>
       </div>
       <div id="shift-rows"></div>
 
@@ -61,8 +64,27 @@
 <script src="/common.js"></script>
 <script>
   let employees = [];
+  let branches = [];
+  let sessionBranchId = null;
 
-  function shiftRowHtml(employeeId = "", hours = "") {
+  // `guest`, when given, is {branchId, branchName, name} for a "borrowed"
+  // employee from another branch — rendered as a locked single-option
+  // select (same .shift-employee selector/`.value` as a normal row, so
+  // readShiftRows() needs no special case for it) instead of the full
+  // employee dropdown, since which person a guest row refers to isn't
+  // editable after picking them.
+  function shiftRowHtml(employeeId = "", hours = "", guest = null) {
+    if (guest) {
+      return `
+        <div class="shift-row" data-guest-branch="${escapeHtml(guest.branchId)}">
+          <select class="shift-employee" disabled>
+            <option value="${escapeHtml(employeeId)}" selected>${escapeHtml(guest.name)} (${escapeHtml(guest.branchName)})</option>
+          </select>
+          <input type="number" class="shift-hours" placeholder="Hours" min="0" step="0.01" value="${hours}" />
+          <button type="button" class="btn-danger remove-shift">Remove</button>
+        </div>
+      `;
+    }
     const options = employees
       .map((e) => `<option value="${escapeHtml(e.id)}" ${e.id === employeeId ? "selected" : ""}>${escapeHtml(e.name)}</option>`)
       .join("");
@@ -75,19 +97,23 @@
     `;
   }
 
-  function addShiftRow(employeeId, hours) {
+  function addShiftRow(employeeId, hours, guest) {
     const wrap = document.createElement("div");
-    wrap.innerHTML = shiftRowHtml(employeeId, hours);
+    wrap.innerHTML = shiftRowHtml(employeeId, hours, guest);
     const row = wrap.firstElementChild;
     row.querySelector(".remove-shift").addEventListener("click", () => row.remove());
     document.getElementById("shift-rows").appendChild(row);
   }
 
   function readShiftRows() {
-    return Array.from(document.querySelectorAll(".shift-row")).map((row) => ({
-      employeeId: row.querySelector(".shift-employee").value,
-      hours: Number(row.querySelector(".shift-hours").value),
-    }));
+    return Array.from(document.querySelectorAll(".shift-row")).map((row) => {
+      const shift = {
+        employeeId: row.querySelector(".shift-employee").value,
+        hours: Number(row.querySelector(".shift-hours").value),
+      };
+      if (row.dataset.guestBranch) shift.homeBranchId = row.dataset.guestBranch;
+      return shift;
+    });
   }
 
   async function loadEmployees() {
@@ -106,7 +132,18 @@
     document.getElementById("cashTips").value = entry.cashTips;
     document.getElementById("creditTips").value = entry.creditTips;
     document.getElementById("shift-rows").innerHTML = "";
-    entry.shifts.forEach((s) => addShiftRow(s.employeeId, s.hours));
+    const branchNameById = new Map(branches.map((b) => [b.id, b.name]));
+    entry.shifts.forEach((s) => {
+      if (s.homeBranchId) {
+        addShiftRow(s.employeeId, s.hours, {
+          branchId: s.homeBranchId,
+          branchName: branchNameById.get(s.homeBranchId) || "another branch",
+          name: s.employeeName,
+        });
+      } else {
+        addShiftRow(s.employeeId, s.hours);
+      }
+    });
     document.getElementById("cancel-edit").style.display = "inline-block";
   }
 
@@ -114,9 +151,10 @@
     const session = await requireSession();
     if (!session) return;
     renderBranchSidebar(session, "/entry.html");
+    sessionBranchId = session.branchId;
 
     try {
-      await loadEmployees();
+      [branches] = await Promise.all([api("/api/branches"), loadEmployees()]);
 
       document.getElementById("date").value = todayStr();
 
@@ -136,6 +174,14 @@
   })();
 
   document.getElementById("add-shift").addEventListener("click", () => addShiftRow());
+
+  document.getElementById("add-shift-caret").addEventListener("click", async (e) => {
+    const choice = await openButtonMenu(e.currentTarget, [{ label: "Add from another branch", value: "guest" }]);
+    if (choice !== "guest") return;
+    const picked = await openCrossBranchPicker({ branches, excludeBranchId: sessionBranchId, kind: "employees", label: "Employee" });
+    if (!picked) return;
+    addShiftRow(picked.id, "", { branchId: picked.branchId, branchName: picked.branchName, name: picked.name });
+  });
 
   document.getElementById("cancel-edit").addEventListener("click", () => {
     window.location.href = "/entry.html";

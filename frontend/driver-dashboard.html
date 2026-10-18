@@ -22,6 +22,7 @@
   <div class="card">
     <div class="section-title">
       <h2>My weekly pay</h2>
+      <select id="branch-filter" style="width:auto"><option value="all">All branches</option></select>
     </div>
 
     <div class="period-nav">
@@ -38,42 +39,107 @@
 <script src="/common.js"></script>
 <script>
   let anchor = todayStr();
+  let lastRow = null; // this week's data, kept so the branch filter can re-render without refetching
+  let branchFilter = "all";
+
+  function round2(n) {
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
+  // A 2-letter tag instead of a full "Branch" column — "Harolds Cross" ->
+  // "HC" (first letter of each word), "Deansgrange" -> "DE" (first 2
+  // letters of the one word). Shown as a small badge next to the date, with
+  // the full name as its hover title.
+  function branchCode(name) {
+    const words = (name || "").trim().split(/\s+/).filter(Boolean);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    return (name || "").slice(0, 2).toUpperCase();
+  }
+
+  // Rebuilds the "All branches" / per-branch options from whichever
+  // branches actually appear in this week's days, keeping the current
+  // selection if it's still one of them (same pattern as history.html's
+  // populateBucketFilter).
+  function populateBranchFilter(days) {
+    const select = document.getElementById("branch-filter");
+    const seen = new Map();
+    days.forEach((d) => {
+      if (d.branchId) seen.set(d.branchId, d.branchName);
+    });
+    const prev = branchFilter;
+    select.innerHTML =
+      `<option value="all">All branches</option>` +
+      Array.from(seen.entries())
+        .map(([id, name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`)
+        .join("");
+    select.value = [...select.options].some((o) => o.value === prev) ? prev : "all";
+    branchFilter = select.value;
+  }
 
   function renderView(history) {
     document.getElementById("period-label").textContent = history.label;
-    const row = history.rows[0];
+    lastRow = history.rows[0] || null;
+    populateBranchFilter(lastRow ? lastRow.days : []);
+    renderFiltered();
+  }
 
-    if (!row) {
+  function renderFiltered() {
+    if (!lastRow) {
       document.getElementById("summary-wrap").innerHTML = "";
       document.getElementById("days-wrap").innerHTML = '<p class="empty-state">No entries in this week.</p>';
       return;
     }
+    const days = branchFilter === "all" ? lastRow.days : lastRow.days.filter((d) => d.branchId === branchFilter);
+    // Reuse the backend's own totals for "All branches" (the common case);
+    // only re-sum here for a single branch, where the backend never
+    // computed a subtotal.
+    const totals =
+      branchFilter === "all"
+        ? lastRow
+        : days.reduce(
+            (acc, d) => ({
+              hours: round2(acc.hours + d.hours),
+              basePay: round2(acc.basePay + d.basePay),
+              deliveryPay: round2(acc.deliveryPay + d.deliveryPay),
+              tips: round2(acc.tips + d.tips),
+              finalPay: round2(acc.finalPay + d.finalPay),
+            }),
+            { hours: 0, basePay: 0, deliveryPay: 0, tips: 0, finalPay: 0 }
+          );
 
     document.getElementById("summary-wrap").innerHTML = `
       <table style="margin-bottom:16px">
         <thead><tr><th>Hours</th><th>Base pay</th><th>Delivery pay</th><th>Tips</th><th>Total pay</th></tr></thead>
         <tbody>
           <tr>
-            <td>${row.hours}h</td>
-            <td>${formatMoney(row.basePay)}</td>
-            <td>${formatMoney(row.deliveryPay)}</td>
-            <td>${formatMoney(row.tips)}</td>
-            <td><strong>${formatMoney(row.finalPay)}</strong></td>
+            <td>${totals.hours}h</td>
+            <td>${formatMoney(totals.basePay)}</td>
+            <td>${formatMoney(totals.deliveryPay)}</td>
+            <td>${formatMoney(totals.tips)}</td>
+            <td><strong>${formatMoney(totals.finalPay)}</strong></td>
           </tr>
         </tbody>
       </table>
     `;
 
-    const dayRows = row.days
+    if (days.length === 0) {
+      document.getElementById("days-wrap").innerHTML = '<p class="empty-state">No entries for this branch this week.</p>';
+      return;
+    }
+
+    const dayRows = days
       .map((d) => {
         const noteHtml = d.note ? `<br /><span class="hint">${escapeHtml(d.note)}</span>` : "";
         const payClass = d.isSolo ? (d.topUpApplied ? "pay-floor" : "pay-above") : "";
         const zoneCells = d.zoneCounts
           .map((c, i) => `<td>${formatMoney(d.zoneValues[i])}<br /><span class="hint">${c} order${c === 1 ? "" : "s"}</span></td>`)
           .join("");
+        const branchTag = d.branchName
+          ? ` <span class="badge badge-staff" title="${escapeHtml(d.branchName)}">${escapeHtml(branchCode(d.branchName))}</span>`
+          : "";
         return `
           <tr>
-            <td>${d.date}${noteHtml}</td>
+            <td>${d.date}${branchTag}${noteHtml}</td>
             <td>${d.hours}h</td>
             <td>${formatMoney(d.basePay)}</td>
             ${zoneCells}
@@ -104,6 +170,11 @@
       document.getElementById("days-wrap").innerHTML = `<p class="empty-state">Couldn't load this week (${err.message}).</p>`;
     }
   }
+
+  document.getElementById("branch-filter").addEventListener("change", (e) => {
+    branchFilter = e.target.value;
+    renderFiltered();
+  });
 
   document.getElementById("prev-btn").addEventListener("click", () => {
     anchor = document.getElementById("prev-btn").dataset.anchor;
