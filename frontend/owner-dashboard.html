@@ -88,6 +88,9 @@
               <option value="multiples">Multiple charts (per store)</option>
             </select>
           </div>
+          <div class="analytics-filter" style="justify-content:flex-end">
+            <button type="button" id="an-export-csv" class="btn-secondary btn-small">Export CSV</button>
+          </div>
         </div>
         <div id="analytics-body">
           <p class="empty-state">Loading&hellip;</p>
@@ -170,12 +173,6 @@
       </div>
 
       <div class="card" style="max-width:440px; flex:1 1 380px">
-        <h2>Data storage</h2>
-        <p class="subtitle" id="sheets-status-text">Loading&hellip;</p>
-        <div id="sheets-actions" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px"></div>
-      </div>
-
-      <div class="card" style="max-width:440px; flex:1 1 380px">
         <h2>Data retention</h2>
         <p class="subtitle">Keep the Google Sheet from growing forever by clearing out old history.</p>
         <label style="display:flex; align-items:center; gap:8px; font-weight:600; margin-top:14px; cursor:pointer">
@@ -211,7 +208,6 @@
       switchView(a.dataset.view);
       if (a.dataset.view === "settings") {
         loadGoogleConfig();
-        loadSheetsStatus();
         loadAutoDeleteSetting();
         loadRates();
       }
@@ -623,6 +619,62 @@
     return Math.round((n + Number.EPSILON) * 100) / 100;
   }
 
+  // Mirrors renderAnalyticsTable()'s row/column shape exactly, so the CSV
+  // always matches whatever the table view would currently show for the
+  // same filters — same bucket restriction, same cash/credit split handling.
+  function csvField(value) {
+    const s = String(value);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+
+  function exportAnalyticsCsv() {
+    const filters = getAnalyticsFilters();
+    const { bucketKeys: allBucketKeys, bucketLabels, byStore, byStoreCash, byStoreCredit, isSplit } = buildSeries(filters);
+    filters.isSplit = isSplit;
+    const bucketKeys = filters.bucketKey === "all" ? allBucketKeys : allBucketKeys.filter((k) => k === filters.bucketKey);
+    if (bucketKeys.length === 0) return;
+    const branchNameById = new Map(analyticsData.branches.map((b) => [b.id, b.name]));
+
+    const lines = [];
+    if (isSplit) {
+      lines.push(["Period", "Cash (EUR)", "Credit (EUR)", "Total (EUR)"].map(csvField).join(","));
+      for (const k of bucketKeys) {
+        const cash = round2(Array.from(byStoreCash.values()).reduce((sum, m) => sum + (m.get(k) || 0), 0));
+        const credit = round2(Array.from(byStoreCredit.values()).reduce((sum, m) => sum + (m.get(k) || 0), 0));
+        lines.push([bucketLabels.get(k), cash, credit, round2(cash + credit)].map(csvField).join(","));
+      }
+    } else {
+      const storeIds = Array.from(byStore.keys());
+      const header = ["Period", ...storeIds.map((id) => branchNameById.get(id) || id)];
+      if (storeIds.length > 1) header.push("Total");
+      lines.push(header.map(csvField).join(","));
+      for (const k of bucketKeys) {
+        let total = 0;
+        const values = storeIds.map((id) => {
+          const v = round2(byStore.get(id).get(k) || 0);
+          total += v;
+          return v;
+        });
+        const row = [bucketLabels.get(k), ...values];
+        if (storeIds.length > 1) row.push(round2(total));
+        lines.push(row.map(csvField).join(","));
+      }
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `analytics-${filters.metric}-${filters.period}-${stamp}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById("an-export-csv").addEventListener("click", exportAnalyticsCsv);
+
   // These change which rows/buckets are in play, so the "specific
   // week/month/year" dropdown's options need refreshing before re-rendering.
   ["an-metric", "an-period", "an-employee", "an-driver"].forEach((id) => {
@@ -764,26 +816,6 @@
       errorEl.textContent = err.message;
     }
   });
-
-  async function loadSheetsStatus() {
-    const statusEl = document.getElementById("sheets-status-text");
-    const actionsEl = document.getElementById("sheets-actions");
-    try {
-      const info = await api("/api/owner/sheet-info");
-      if (!info.sheetUrl) {
-        statusEl.textContent = "No Google Sheet is connected.";
-        actionsEl.innerHTML = `<a class="btn-primary btn-small" href="/setup.html">Connect a Google Sheet</a>`;
-        return;
-      }
-      statusEl.textContent = `Connected as ${info.email || "an unknown account"}. All store data (employees, drivers, tip entries, delivery entries) reads and writes directly to this Google Sheet — every save takes effect immediately.`;
-      actionsEl.innerHTML = `
-        <a class="btn-secondary btn-small" href="${escapeHtml(info.sheetUrl)}" target="_blank" rel="noopener">Open Google Sheet &#8599;</a>
-        <a class="btn-secondary btn-small" href="/setup.html?reconnect=1">Change connected Google Sheet</a>
-      `;
-    } catch (err) {
-      statusEl.textContent = "Couldn't load storage info.";
-    }
-  }
 
   async function loadAutoDeleteSetting() {
     try {
