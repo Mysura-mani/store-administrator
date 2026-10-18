@@ -158,13 +158,28 @@ let readyPromise = null;
 let seededForSheetId = null;
 app.use(
   ah(async (req, res, next) => {
-    const conn = await controlSheet.getConnection();
-    req.sheetConnected = !!(conn && conn.sheetId && conn.refreshToken);
-    if (req.sheetConnected && seededForSheetId !== conn.sheetId) {
-      readyPromise = store.ensureSeeded();
-      seededForSheetId = conn.sheetId;
+    try {
+      const conn = await controlSheet.getConnection();
+      req.sheetConnected = !!(conn && conn.sheetId && conn.refreshToken);
+      if (req.sheetConnected && seededForSheetId !== conn.sheetId) {
+        readyPromise = store.ensureSeeded();
+        seededForSheetId = conn.sheetId;
+      }
+      if (req.sheetConnected) await readyPromise;
+    } catch (err) {
+      // A broken Google connection (an expired/revoked token, an API outage,
+      // ...) must not take the entire site down with it — every route,
+      // including /setup.html itself, went through this same check, so a
+      // failure here previously meant nobody could even reach the page that
+      // fixes it. Falling through as "not connected" instead reuses the
+      // existing first-time-setup path (see the next middleware) rather than
+      // a raw 500. Clearing these also makes the next request retry instead
+      // of reusing this same rejected promise forever.
+      console.error("Sheet connection check failed:", err);
+      req.sheetConnected = false;
+      readyPromise = null;
+      seededForSheetId = null;
     }
-    if (req.sheetConnected) await readyPromise;
     next();
   })
 );
