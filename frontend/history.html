@@ -74,8 +74,8 @@
             (d) => `
               <tr class="day-subtable" data-owner="${row.employeeId}" style="display:none">
                 <td>${d.date}</td>
-                <td>${formatMoney(d.creditTips)}</td>
                 <td>${formatMoney(d.cashTips)}</td>
+                <td>${formatMoney(d.creditTips)}</td>
                 <td>${d.hours}h</td>
                 <td>${canEditDay(d.date) ? `<button class="btn-secondary btn-small edit-day-btn" data-id="${d.entryId}">Edit</button>` : ""}</td>
               </tr>
@@ -85,8 +85,8 @@
         return `
           <tr>
             <td><button class="expand-toggle" data-target="${row.employeeId}">&#9656;</button> ${escapeHtml(row.name)}</td>
-            <td>${formatMoney(row.creditTips)}</td>
             <td>${formatMoney(row.cashTips)}</td>
+            <td>${formatMoney(row.creditTips)}</td>
             <td>${formatMoney(row.total)}</td>
             <td>${row.hours}h</td>
           </tr>
@@ -98,7 +98,7 @@
     wrap.innerHTML = `
       <table>
         <thead>
-          <tr><th>Employee</th><th>Credit</th><th>Cash</th><th>Total</th><th>Hours</th></tr>
+          <tr><th>Employee</th><th>Cash</th><th>Credit</th><th>Total</th><th>Hours</th></tr>
         </thead>
         <tbody>${bodyRows}</tbody>
         <tfoot>
