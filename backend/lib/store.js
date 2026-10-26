@@ -385,22 +385,52 @@ async function deleteEmployee(branchId, id) {
 
 // ---------- entries ----------
 
+// Splits `total` (euros) across `fractions` (shares that sum to ~1) so the
+// result always adds up to EXACTLY `total` to the cent. Rounding each
+// share independently (the old behavior) can drift the group's sum a cent
+// or more off the entered total once several people's roundings compound -
+// wrong for a real payroll split. This uses the largest-remainder method:
+// round every share down to the cent, then hand out the leftover pennies
+// one at a time to whoever's unrounded share was closest to the next cent
+// (ties broken by shift order), so no single person systematically
+// absorbs all the rounding. Works in integer cents throughout to stay
+// exact; the two `remainder` loops below only run in opposite directions
+// in the (normally unreachable) case that float drift in `fractions`
+// pushes the floored sum past `total` rather than under it.
+function splitExact(total, fractions) {
+  if (fractions.length === 0) return [];
+  const totalCents = Math.round(total * 100);
+  const raw = fractions.map((f) => total * f * 100);
+  const cents = raw.map((v) => Math.floor(v));
+  const order = raw
+    .map((v, i) => ({ i, frac: v - cents[i] }))
+    .sort((a, b) => b.frac - a.frac);
+  let remainder = totalCents - cents.reduce((sum, v) => sum + v, 0);
+  for (let k = 0; remainder > 0 && k < order.length; k++, remainder--) {
+    cents[order[k].i] += 1;
+  }
+  for (let k = order.length - 1; remainder < 0 && k >= 0; k--, remainder++) {
+    cents[order[k].i] -= 1;
+  }
+  return cents.map((c) => round2(c / 100));
+}
+
 function computeShares(entry) {
   const totalHours = entry.shifts.reduce((sum, s) => sum + s.hours, 0);
-  return entry.shifts.map((s) => {
-    const fraction = totalHours > 0 ? s.hours / totalHours : 0;
-    return {
-      employeeId: s.employeeId,
-      hours: s.hours,
-      cashShare: round2(entry.cashTips * fraction),
-      creditShare: round2(entry.creditTips * fraction),
-      // Only set for a borrowed shift (see ENTRIES_HEADERS) - carries the
-      // write-time name/home-branch snapshot through to buildHistory so it
-      // can label a guest correctly without a second cross-branch lookup.
-      homeBranchId: s.homeBranchId,
-      employeeName: s.employeeName,
-    };
-  });
+  const fractions = entry.shifts.map((s) => (totalHours > 0 ? s.hours / totalHours : 0));
+  const cashShares = splitExact(entry.cashTips, fractions);
+  const creditShares = splitExact(entry.creditTips, fractions);
+  return entry.shifts.map((s, i) => ({
+    employeeId: s.employeeId,
+    hours: s.hours,
+    cashShare: cashShares[i],
+    creditShare: creditShares[i],
+    // Only set for a borrowed shift (see ENTRIES_HEADERS) - carries the
+    // write-time name/home-branch snapshot through to buildHistory so it
+    // can label a guest correctly without a second cross-branch lookup.
+    homeBranchId: s.homeBranchId,
+    employeeName: s.employeeName,
+  }));
 }
 
 function withShares(entry) {
