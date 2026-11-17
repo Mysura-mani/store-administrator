@@ -117,7 +117,12 @@
   }
 
   function createDriverCard(index, data = {}, options = {}) {
-    const { driverId = "", hours = "", zoneCounts = [0, 0, 0, 0], cashOrders = [], tips = "", note = "", homeBranchId = "", driverName = "" } = data;
+    const { driverId = "", hours = "", hourlyRate, zoneCounts = [0, 0, 0, 0], cashOrders = [], tips = "", note = "", homeBranchId = "", driverName = "" } = data;
+    // Entered per shift now rather than always being the branch's fixed
+    // default - but a brand-new card still starts pre-filled with that
+    // default so the common case (the rate doesn't change day to day)
+    // needs no extra typing.
+    const rateValue = hourlyRate !== undefined && hourlyRate !== null ? hourlyRate : rates ? rates.driverHourlyRate : "";
     const guest = homeBranchId ? { branchId: homeBranchId, branchName: branchName(homeBranchId), name: driverName } : null;
     const card = document.createElement("div");
     card.className = "driver-card";
@@ -132,6 +137,10 @@
         <div>
           <label>Hours</label>
           <input type="number" class="d-hours" min="0" step="0.25" value="${hours}" placeholder="Hours" />
+        </div>
+        <div>
+          <label>Rate (&euro;/hour)</label>
+          <input type="number" class="d-rate" min="0" step="0.01" value="${rateValue}" placeholder="Rate" />
         </div>
       </div>
       <div class="row zone-row">${zoneInputsHtml(zoneCounts)}</div>
@@ -185,7 +194,7 @@
       }
     `;
 
-    card.querySelectorAll(".d-hours, .d-zone, .d-tips").forEach((input) => input.addEventListener("input", recalcAllTotals));
+    card.querySelectorAll(".d-hours, .d-rate, .d-zone, .d-tips").forEach((input) => input.addEventListener("input", recalcAllTotals));
     const cashCountInput = card.querySelector(".d-cash-count");
     cashCountInput.addEventListener("input", () => {
       renderCashOrderInputs(card, Math.max(0, Math.floor(Number(cashCountInput.value) || 0)));
@@ -266,7 +275,8 @@
         return;
       }
       const tips = Number(card.querySelector(".d-tips").value) || 0;
-      const basePay = hours * rates.driverHourlyRate;
+      const hourlyRate = Number(card.querySelector(".d-rate").value) || 0;
+      const basePay = hours * hourlyRate;
       const deliveryPay = zoneCounts.reduce((sum, c, i) => sum + c * rates.zoneRates[i], 0);
       const rawTotal = basePay + deliveryPay;
       const minWageFloor = hours * rates.minimumWage;
@@ -302,6 +312,7 @@
     const driver = {
       driverId: driverSelect ? driverSelect.value : "",
       hours: Number(card.querySelector(".d-hours").value),
+      hourlyRate: Number(card.querySelector(".d-rate").value),
       zoneCounts: Array.from(card.querySelectorAll(".d-zone")).map((input) => Number(input.value) || 0),
       cashOrders: Array.from(card.querySelectorAll(".cash-order-value-input")).map((input) => Number(input.value) || 0),
       tips: Number(card.querySelector(".d-tips").value) || 0,

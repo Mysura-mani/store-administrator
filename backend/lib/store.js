@@ -52,6 +52,7 @@ const DELIVERY_ENTRIES_HEADERS = [
   "note",
   "cashOrdersJson",
   "driverBranchId",
+  "hourlyRate",
 ];
 
 function round2(n) {
@@ -680,7 +681,11 @@ async function deleteDriver(branchId, id) {
 // ---------- delivery entries ----------
 
 function computeDeliveryPay(driverRow, rates, isSolo) {
-  const basePay = driverRow.hours * rates.driverHourlyRate;
+  // The hourly rate is entered per shift now (older rows saved before this
+  // existed fall back to the branch's own default) - only the minimum-wage
+  // floor below still always comes from the branch's rates, unchanged.
+  const hourlyRate = Number.isFinite(driverRow.hourlyRate) ? driverRow.hourlyRate : rates.driverHourlyRate;
+  const basePay = driverRow.hours * hourlyRate;
   const zoneCounts = driverRow.zoneCounts;
   const zoneValues = zoneCounts.map((count, i) => round2(count * rates.zoneRates[i]));
   const deliveryPay = zoneCounts.reduce((sum, count, i) => sum + count * rates.zoneRates[i], 0);
@@ -698,6 +703,7 @@ function computeDeliveryPay(driverRow, rates, isSolo) {
   return {
     driverId: driverRow.driverId,
     hours: driverRow.hours,
+    hourlyRate,
     zoneCounts,
     zoneValues,
     basePay: round2(basePay),
@@ -754,6 +760,9 @@ function groupDeliveryEntryRows(rows) {
         return {
           driverId: r.driverId,
           hours: Number(r.hours) || 0,
+          // Blank on a row saved before this column existed - computeDeliveryPay
+          // falls back to the branch's own default rate in that case.
+          hourlyRate: r.hourlyRate !== undefined && r.hourlyRate !== "" ? Number(r.hourlyRate) : undefined,
           zoneCounts: [Number(r.zone1Count) || 0, Number(r.zone2Count) || 0, Number(r.zone3Count) || 0, Number(r.zone4Count) || 0],
           cashOrders: JSON.parse(r.cashOrdersJson || "[]"),
           tips: Number(r.tips) || 0,
@@ -809,7 +818,9 @@ function parseDeliveryDriverFields(d) {
   const tips = Number(d.tips) || 0;
   if (!Number.isFinite(tips) || tips < 0) throw new Error("Tips must be a non-negative number.");
   const note = typeof d.note === "string" ? d.note.trim().slice(0, 500) : "";
-  return { zoneCounts, cashOrders, tips, note };
+  const hourlyRate = Number(d.hourlyRate);
+  if (!Number.isFinite(hourlyRate) || hourlyRate < 0) throw new Error("Hourly rate must be a non-negative number.");
+  return { zoneCounts, cashOrders, tips, note, hourlyRate };
 }
 
 // `driverMap` (id -> {name, branchId}, from resolveDriverMap) scopes
@@ -874,6 +885,7 @@ async function writeDeliveryEntryRows(entryId, branchId, clean) {
       tips: d.tips,
       note: d.note,
       cashOrdersJson: JSON.stringify(d.cashOrders),
+      hourlyRate: d.hourlyRate,
     });
   }
 }
@@ -949,6 +961,7 @@ async function updateDeliveryEntryDriver(branchId, entryId, driverId, input) {
     tips: clean.tips,
     note: clean.note,
     cashOrdersJson: JSON.stringify(clean.cashOrders),
+    hourlyRate: clean.hourlyRate,
   });
   return getDeliveryEntry(branchId, entryId);
 }
